@@ -9,4 +9,6 @@ Only the MOCK services import the workbook; a real backend replaces them without
 - Envelope `ApiResult<T>` carries `meta.simulated` so UI can badge simulated output.
 - Shell: sidebar (Dashboard + 5 agents), theme toggle, global scope badge "Up to FCT_PRODUCT_MASTER".
 - Dashboard metrics are selectors over generated data + stores; mock-derived ones carry a Simulated badge.
+- Shell layout (Phase 7): the sidebar can be collapsed to icons with a toggle button or resized by dragging its right edge (`layoutStore`, `usePointerDrag`); on small screens it is a slide-over drawer. A floating chat button, mounted once in `Layout`, opens the guidance panel on every screen.
+- Guidance chatbot (Phase 7): `ChatService.ask` runs `KnowledgeRetriever` -> `ContextBuilder` -> `ResponseGenerator` (`src/services/chat/pipeline.ts`). The mock stages use `domain/knowledge.ts` (chunks from the workbook model, project docs and platform guide), `domain/retrieval.ts` (BM25 plus exact table/column/procedure name matching) and `domain/answer.ts` (grounding check and template answers). Replacing the stages with embeddings, a vector database and an LLM does not change `ChatService`, the store or the UI.
 - Future: FastAPI routers per agent (`/api/v1/<agent>/...`), Pydantic models mirroring `src/types`, LLM provider adapter behind the backend only.

@@ -24,6 +24,9 @@ On failure `data` is null and `error` is `{ "code": "...", "message": "..." }`. 
 | | `GET /procedures/expressions` | - | `DocExpression[]` |
 | | `GET /procedures/{id}/explain` | - | `{ summary: string[] }` |
 | | `POST /procedures/analyze` | `{ sql }` | `SqlAnalysis` |
+| | `GET /procedures/sources` | - | `ProcSource[]` (parsed procedure SQL, execution order) |
+| | `GET /procedures/sources/traces` | - | `ProcTrace[]` (links to TRAQ columns and FPM_DA_RULES) |
+| | `GET /procedures/sources/{name}/dd-export` | - | `DdExport` |
 | Mapping | `GET /mappings/targets` | - | `TargetSummary[]` |
 | | `GET /mappings?target=` | query | `MappingRow[]` |
 | | `POST /mappings/suggest` | `{ targetTable }` | `Suggestion[]` |
@@ -34,6 +37,10 @@ On failure `data` is null and `error` is `{ "code": "...", "message": "..." }`. 
 | | `POST /rules/validate` | `ValidationRequest` | `ValidationReport` |
 | | `POST /rules/review` | `{ id, decision, comment }` | `{ id, decision }` |
 | Dashboard | `GET /dashboard/summary` | - | `DashboardSummary` |
+| Chat | `POST /chat/ask` | `ChatRequest` (`question`, `history[]`, `route?`) | `ChatAnswer` (`kind`, `text`, `sources[]`, `followUps[]`) |
+| | `GET /chat/suggestions?route=` | query | `string[]` |
+
+For `/chat/ask` a real backend would run retrieval (embeddings plus a vector database), build the prompt and call an LLM restricted to the retrieved context, returning `kind: 'not-found'` with no sources when nothing relevant is found. Provider and model names appear only in `meta`. Streaming is an open item.
 
 Known mismatch to resolve when the backend is built: `MappingService.listAllTables` currently maps to `GET /datamodel/tables?withColumns=true`, which needs a column-bearing variant of `TableSummary`.
 

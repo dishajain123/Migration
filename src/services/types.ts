@@ -1,5 +1,5 @@
 import type {
-  ApiResult, BusinessRule, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
+  ApiResult, BusinessRule, ChatAnswer, ChatRequest, DdExport, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
   MappingRow, ProcObject, Relationship, ReviewDecision, ScopeInfo, SqlAnalysis, Suggestion, SystemKind, TableComparison, TableDetail,
   TableSummary, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel,
 } from '@/types';
@@ -26,6 +26,11 @@ export interface ProcedureService {
   listExpressions(): Promise<ApiResult<DocExpression[]>>;
   explain(id: string): Promise<ApiResult<{ summary: string[] }>>;
   analyzeSql(sql: string): Promise<ApiResult<SqlAnalysis>>;
+  /** Parsed sample procedure SQL (outside the workbook), in execution order. */
+  listSources(): Promise<ApiResult<ProcSource[]>>;
+  /** Links from each source procedure to TRAQ columns and FPM_DA_RULES rows. */
+  listTraces(): Promise<ApiResult<ProcTrace[]>>;
+  getDdExport(procedure: string): Promise<ApiResult<DdExport>>;
 }
 
 export interface MappingService {
@@ -48,7 +53,14 @@ export interface DashboardService {
   getSummary(): Promise<ApiResult<DashboardSummary>>;
 }
 
+export interface ChatService {
+  /** Answer a question using only retrieved project knowledge; returns a grounded answer or an explicit not-found. */
+  ask(req: ChatRequest): Promise<ApiResult<ChatAnswer>>;
+  getSuggestedQuestions(route?: string): Promise<ApiResult<string[]>>;
+}
+
 export interface Services {
+  chat: ChatService;
   dataModel: DataModelService;
   lineage: LineageService;
   procedures: ProcedureService;

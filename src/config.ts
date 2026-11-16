@@ -6,6 +6,8 @@ export const config = {
   mockLatencyMs: Number(env.VITE_MOCK_LATENCY_MS ?? 250),
   mockErrorRate: Number(env.VITE_MOCK_ERROR_RATE ?? 0),
   workbookCsvUrl: `${env.BASE_URL}data/CrisMac_to_TRAQ_Combined.csv`,
+  /** Sample procedure SQL, manifest.json and dd_export.csv files (served from public/). */
+  procSourcesBase: `${env.BASE_URL}data/latest%20dd%20output/`,
   /** Future backend endpoints (see docs/API_CONTRACTS.md). */
   endpoints: {
     tables: '/datamodel/tables',
@@ -17,6 +19,7 @@ export const config = {
     lineageEdge: '/lineage/edge',
     procedures: '/procedures',
     expressions: '/procedures/expressions',
+    procSources: '/procedures/sources',
     analyzeSql: '/procedures/analyze',
     mappingTargets: '/mappings/targets',
     mappingSuggest: '/mappings/suggest',
@@ -27,5 +30,7 @@ export const config = {
     rulesValidate: '/rules/validate',
     rulesReview: '/rules/review',
     dashboard: '/dashboard/summary',
+    chatAsk: '/chat/ask',
+    chatSuggestions: '/chat/suggestions',
   },
 } as const;

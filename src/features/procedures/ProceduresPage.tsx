@@ -4,26 +4,28 @@ import { noResult, useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
 import { useReviewStore } from '@/stores/reviewStore';
 import type { ProcKind, ProcObject, SqlAnalysis } from '@/types';
+import { SourceProcedures } from './SourceProcedures';
 
-type Tab = 'catalogue' | 'expressions' | 'sql';
+type Tab = 'sources' | 'catalogue' | 'expressions' | 'sql';
 const KIND_LABEL: Record<ProcKind, string> = {
   view: 'TRAQ view', 'traq-procedure': 'TRAQ procedure', 'di-mapping': 'DI mapping', 'di-workflow': 'DI workflow',
   'crismac-procedure': 'CrisMac procedure', 'crismac-object': 'CrisMac object',
 };
 
 export function ProceduresPage() {
-  const [tab, setTab] = useState<Tab>('catalogue');
+  const [tab, setTab] = useState<Tab>('sources');
   return (
     <div>
       <PageHeader
         title="Agent 3 · Procedure & Business Logic Analyzer"
-        description="The workbook does not contain any SQL bodies. This agent catalogues procedures, views and DI mappings that the workbook references, shows the logic that IS documented (expressions in remarks), and offers a client-side analyzer for pasted SQL."
+        description="The workbook itself contains no SQL bodies. The 14 sample CrisMac stored procedures supplied beside it are analysed on the Source procedures tab, with the columns they assign traced to the TRAQ model. The other tabs catalogue what the workbook references, show its documented expressions, and analyse pasted SQL."
       />
       <div className="mb-3 rounded-md border border-border bg-warnbg p-3 text-xs text-warn">
-        Procedure bodies for INSERT / UPDATE / MERGE are not provided in the workbook, so no operation is asserted beyond keywords found in the surrounding text. Template summaries are labelled Simulated.
+        Only the 14 sample procedures have SQL. For every other object the workbook gives names and remarks, so no operation is asserted beyond keywords in the surrounding text. SQL structure and TRAQ links are derived by pattern matching (not AI); template summaries are labelled Simulated.
       </div>
-      <Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'catalogue', label: 'Referenced objects' }, { id: 'expressions', label: 'Documented expressions' }, { id: 'sql', label: 'SQL analyzer' }]} />
+      <Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'sources', label: 'Source procedures (SQL)' }, { id: 'catalogue', label: 'Referenced objects' }, { id: 'expressions', label: 'Documented expressions' }, { id: 'sql', label: 'SQL analyzer' }]} />
       <div className="mt-3">
+        {tab === 'sources' && <SourceProcedures />}
         {tab === 'catalogue' && <Catalogue />}
         {tab === 'expressions' && <Expressions />}
         {tab === 'sql' && <SqlAnalyzer />}
@@ -79,7 +81,7 @@ function ObjectDetail({ obj, analysed, onToggle }: { obj: ProcObject; analysed: 
           right={<Button size="sm" variant={analysed ? 'outline' : 'default'} onClick={onToggle}>{analysed ? 'Unmark analysed' : 'Mark as analysed'}</Button>} />
         <div className="grid gap-3 p-3 text-xs md:grid-cols-2">
           <div><div className="mb-1 font-medium">Documented operations (keyword match)</div>{obj.operations.length ? <div className="flex flex-wrap gap-1">{obj.operations.map((o) => <Badge key={o}>{o}</Badge>)}</div> : <span className="text-muted">None stated</span>}</div>
-          <div><div className="mb-1 font-medium">SQL body</div><Badge tone="warn">Not provided in workbook</Badge></div>
+          <div><div className="mb-1 font-medium">SQL body in workbook</div><Badge tone="warn">Not provided in workbook</Badge></div>
           <div><div className="mb-1 font-medium">Tables mentioned alongside</div><div className="font-mono text-muted">{obj.mentionedTables.join(', ') || '—'}</div></div>
           <div><div className="mb-1 font-medium">Related objects</div><div className="font-mono text-muted">{obj.related.join(', ') || '—'}</div></div>
         </div>

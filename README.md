@@ -23,6 +23,15 @@ Optional env (see `.env.example`): `VITE_USE_MOCKS`, `VITE_API_BASE_URL`, `VITE_
 | `/mapping` | 4 · Suggestions with confidence, approve/reject, documented mappings, unmapped, manual mapping |
 | `/rules` | 5 · Extracted business rules with approval; validation (pass/warn/fail) |
 
+### Source procedures and TRAQ traceability
+
+`public/data/latest dd output/` holds 14 sample CrisMac stored procedures (SQL) and a `manifest.json` listing them. The Procedure Analyzer's **Source procedures** tab shows each in execution order: parameters, every statement with its target table, the expression assigned to each column and the IF/ELSE conditions around it, dated change comments, and a **TRAQ traceability** view linking written columns to TRAQ columns and related `FPM_DA_RULES` rows. Links are name matches, labelled derived; procedures with no link (for example NPA/SMA outputs) say so. Linked assignments also appear as derivation rules in Agent 5 (check C8 reports traceability), and the chatbot can answer questions about them. Save each `dd_export.xlsx` as `dd_export.csv` in its folder to view it in the DD export tab.
+
+### Guidance assistant and sidebar
+
+- The round button at the bottom-right opens a chat panel on every screen. Ask in plain language about tables, columns, lineage, mappings, procedures, business rules, workbook gaps or how to use the app. Answers cite their sources (worksheet/row, table, procedure or doc heading) and are labelled **Simulated**: they are assembled by keyword retrieval over the workbook-derived data and the project docs, with no AI model. If the answer is not in them, it says so. Drag the panel's top-left corner to resize it; history lasts for the browser tab session.
+- The sidebar collapses to icons with the arrow button (hover an icon for its name) and can be resized by dragging its right edge; dragging far left collapses it.
+
 Review decisions (mapping approvals, manual mappings, rule approvals, procedures marked analysed) persist in browser `localStorage` and feed the dashboard and Agent 5's validation.
 
 ## Layout

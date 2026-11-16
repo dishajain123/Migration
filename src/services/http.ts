@@ -27,6 +27,10 @@ const post = <T>(p: string, b: unknown) => request<T>('POST', p, undefined, b);
 
 export function createHttpServices(): Services {
   return {
+    chat: {
+      ask: (req) => post(ep.chatAsk, req),
+      getSuggestedQuestions: (route) => get(ep.chatSuggestions, { route }),
+    },
     dataModel: {
       getScope: () => get(ep.scope),
       listTables: (q) => get(ep.tables, q),
@@ -46,6 +50,9 @@ export function createHttpServices(): Services {
       listExpressions: () => get(ep.expressions),
       explain: (id) => get(`${ep.procedures}/${encodeURIComponent(id)}/explain`),
       analyzeSql: (sql) => post(ep.analyzeSql, { sql }),
+      listSources: () => get(ep.procSources),
+      listTraces: () => get(`${ep.procSources}/traces`),
+      getDdExport: (name) => get(`${ep.procSources}/${encodeURIComponent(name)}/dd-export`),
     },
     mapping: {
       listTargets: () => get(ep.mappingTargets),

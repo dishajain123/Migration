@@ -25,6 +25,7 @@ export const NONFEED = new Set(['NOT FED', 'NOT USED', 'NOT MAPPED', 'NOT CARRIE
 // Known gaps, taken from docs/DATA_DICTIONARY.md section 6 (workbook-derived).
 export const KNOWN_GAPS: string[] = [
   'The workbook contains no stored-procedure, view or DI-mapping SQL bodies - only object names and prose/expressions in remark cells.',
+  'Sample SQL for 14 CrisMac stored procedures is supplied beside the workbook (public/data/latest dd output), not inside it. Every other procedure, view and DI mapping has a name only. Procedure-to-TRAQ links are name matches, not a documented mapping.',
   'No physical PK/FK catalogue: primary keys are stated only in some sheet banners.',
   'FCT_PRODUCT_MASTER is mapped across several sheets (its own sheet maps 18 columns; ASSET_BASE_TO_FPM, INVESTMENT_TO_FPM and DERIVATIVE_TO_FPM map the rest).',
   'Row counts disagree between index and banners in places (e.g. STG_INVESTMENT_BASE: index 0, banner 215).',
