@@ -13,6 +13,36 @@
 | 6 Integration | Review store feeds dashboard readiness and Agent 5 check C7; dashboard workflow cards | Written, unverified |
 | 8 Source procedure SQL + TRAQ traceability | `domain/{sqlParse,procTrace}`, `services/procSource`, `features/procedures/SourceProcedures`, rules C8, chatbot knowledge | Written, **unverified**; dd_export CSV parser waits for a sample |
 | 7 Guidance chatbot + sidebar | `components/chat`, `services/chat`, `domain/{knowledge,retrieval,answer}`, `stores/{chatStore,layoutStore}`, `Layout` sidebar collapse and drag-resize | Written, **unverified** (typecheck, build, tests and browser checks pending) |
+| 9 Agent 2 column-level flow explorer | `domain/lineageFlow`, `services/*/lineage` (`getCatalog`, `getFlow`), `features/lineage/{LineagePage,TablePicker,FlowCanvas,TableNode,FlowDetails,ColumnTrace,flowStyle}`, `components/InfoTip`, motion CSS in `index.css` | Written, **unverified** (no shell: not compiled or run) |
+| 10 SQL-to-CSV rule conversion (Agent 5, linked from Agent 3) | Upload, extraction view, mapping workspace, CSV export | **Not started** - see "Enhancement backlog" |
+| 11 Application-wide UX pass | InfoTip and tooltips on every screen, empty/loading states, confirmation dialogs, motion | **Started** (InfoTip, motion CSS, lineage only) - see backlog |
+
+## Enhancement backlog: priorities and acceptance criteria
+Requested as one enhancement; delivered one phase per cycle (CLAUDE.md). Priority order: P1 lineage (done, pending verification), P2 SQL-to-CSV conversion, P3 UX pass on remaining screens.
+
+### P1 - Phase 9 Lineage (acceptance criteria)
+1. Table picker lists every table that appears in a documented mapping (count equals `tableCatalog` length) with search and layer/system filters; filters never change the selection.
+2. Selecting a table draws it plus all upstream and downstream tables to the chosen depth (1-4 or All); with Upstream off no upstream table appears, likewise Downstream.
+3. Every drawn arrow is one or more workbook mapping rows; its detail shows source table/column, target table/column, MAP TYPE, remark verbatim (or "Not provided in workbook") and sheet/row.
+4. Direct (DIRECT/RENAME), transformed (any other MAP TYPE) and blank MAP TYPE are visually distinct and in the legend; arrows have heads; flow runs left to right.
+5. Zoom, pan, fit, minimap, collapse/expand per table and for all, show-all columns, Auto-arrange, drag a node.
+6. Clicking a table highlights its upstream (blue) and downstream (green) path and dims the rest; clicking a column opens the multi-hop trace.
+7. A default graph (FCT_PRODUCT_MASTER, depth 2) has at most about 10 rows per table and no overlapping nodes (layout assigns heights from visible rows).
+8. Loading, error, empty (no selection, no lineage) and success states exist; a guidance card explains the four steps; `npm test` passes `lineageFlow.test.ts`; `npm run build` succeeds.
+
+### P2 - Phase 10 SQL-to-CSV rule conversion (planned acceptance criteria)
+1. First task: search the workbook for a documented TRAQ rule template. FPM_DA_RULES (columns RUN, TRAQ COLUMN, KIND, DATATYPE, RULE, IN FORCE FROM, CRISMAC, READS, LOGIC, EXPRESSION, VERSION) is the only candidate; if it is used as the target schema it is labelled "from workbook", otherwise an editable illustrative template labelled "Illustrative".
+2. Upload accepts multiple `.sql` files by drag-and-drop or picker; rejects other types, empty files and files over a size limit with a visible message; shows a preview and per-file status.
+3. Extraction reuses `domain/sqlParse` (no second parser) and lists per file: procedure name, source/target tables, columns written, INSERT/UPDATE/MERGE steps, JOIN and WHERE text, CASE expressions, defaults, guards and called procedures. Unsupported constructs (MERGE, dynamic SQL, cursors if not parsed) are listed, never silently dropped. Everything is labelled as parser output, not AI.
+4. Mapping workspace: each extracted rule maps to template columns; unmappable fields are highlighted; manual edits persist; each row has status, a labelled-Simulated confidence and Approve/Reject.
+5. Export is blocked while a mandatory template field is empty, with the offending rows listed; CSV downloads with exact template headers and correct quoting; a summary shows counts of converted, needs-review and unsupported rules.
+6. All of it sits behind a `RuleConversionService` interface (mock now, FastAPI later); unit tests cover extraction-to-row mapping, validation and CSV escaping.
+
+### P3 - Phase 11 UX pass (planned acceptance criteria)
+1. Every screen header has an InfoTip (what, why, how); technical terms (MAP TYPE, staging, mart, upstream, guard) use `Term` or a tooltip; icon-only buttons have `aria-label` and a title.
+2. Every async view shows loading, error with Retry, empty with a next step, and success; destructive or bulk actions (reject, reset, clear approvals) ask for confirmation in an accessible dialog.
+3. Motion limited to: sidebar width, popovers/modals, tab content, expanders, toasts, graph highlight; none runs when `prefers-reduced-motion` is set. No new animation dependency unless installed and built (Framer Motion needs `npm install`; CSS is used until then).
+4. Layout checked at 375, 768, 1280 px: no horizontal page scroll, controls reachable, graph and tables scroll inside their cards.
 
 ## Also added
 - Agent 1 Relationships tab (derived from LOOKUP/JOIN mappings; physical FKs are not in the workbook) - `domain/relationships.ts`.
@@ -43,11 +73,18 @@
 5. DD export: save each `dd_export.xlsx` as `dd_export.csv` (UTF-8) in its folder, then check the DD export tab; share one file's first rows so the parser can use its real structure.
 6. `public/data/CrisMac_to_TRAQ_Combined.csv` must also be present (only an .xlsx was found in `public/data/`), otherwise every screen shows the missing-workbook error.
 
+## Phase 9 checklist
+1. `npm test`: `src/domain/lineageFlow.test.ts` (traversal, depth, direction, direct/transformed, grouping, layout) on the small fixture.
+2. `/lineage`: FCT_PRODUCT_MASTER is preselected. Tick another table, change depth and direction, toggle "TRAQ tables only" and "Include NOT USED links". Check each acceptance criterion under P1.
+3. Check on the real workbook: column counts per table node vs Agent 1, a known DIRECT row and a known DERIVED row (remark text matches the sheet), and that a very wide table (FCT_PRODUCT_MASTER, 186 columns) shows 10 rows plus "show all".
+4. Known risks to look for first: React Flow handle ids with unusual column names, edge labels overlapping when many arrows share a pair, layout when a table sits in a cycle.
+
 ## Known limitations / follow-ups
 - Source procedures: `dd_export` files are shown as raw tables until their structure is known. The SQL parser does not follow dynamic SQL, cursors or nested procedure calls; traceability is by name, not by data flow through the PRO working tables. Steps in NPA/SMA procedures that write non-TRAQ tables stay untraced.
 - Chatbot: retrieval is keyword-based (no semantic matching, so paraphrases without shared words can miss), answers are template text rather than synthesized prose, and only the last few turns of history are used for pronoun follow-ups. The knowledge index (about one chunk per column) is built in the browser on the first question.
 - shadcn/ui: components in `src/components/ui.tsx` are hand-authored in shadcn style (cva + tailwind-merge); swap for `npx shadcn add` components later if desired.
-- Table lineage only; column lineage is traced on demand from mapping rows.
+- Agent 2 now draws column-level mappings for the selected tables. "Procedures" on an arrow are workbook objects mentioned together with both tables (name co-occurrence, not a documented link). Direct vs transformed is derived from MAP TYPE only; the workbook has no SQL for the transformations, so the remark text is all that is shown.
+- Framer Motion is not used: nothing could be installed here. CSS keyframes (`anim-pop`, `anim-fade`, `anim-slide-up`) cover Phase 9; revisit in Phase 11.
 - Suggestion scoring thresholds (0.35, ambiguity gap 0.05) are arbitrary demo values.
 - `Recp_*` sheets are treated as dictionary-only and excluded from coverage and mandatory-field validation.
 - Large tables (DIM Tables unmapped list ~3,500 rows) rely on pagination, not virtualisation.

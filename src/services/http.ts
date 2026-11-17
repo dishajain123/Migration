@@ -41,6 +41,8 @@ export function createHttpServices(): Services {
     },
     lineage: {
       getGraph: (o) => get(ep.lineage, { ...o }),
+      getCatalog: (o) => get(ep.lineageCatalog, { ...o }),
+      getFlow: (req) => post(ep.lineageFlow, req),
       getEdgeMappings: (source, target) => get(ep.lineageEdge, { source, target }),
       traceColumn: (table, column, direction) => get(ep.lineageTrace, { table, column, direction }),
       listColumns: (table) => get(`${ep.tables}/${encodeURIComponent(table)}/columns`),

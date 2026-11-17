@@ -1,44 +1,151 @@
-import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, GitBranch, Plus, RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import ReactFlow, { Background, Controls, MarkerType, MiniMap, type Edge, type Node } from 'reactflow';
-import 'reactflow/dist/style.css';
-import { AsyncView, Badge, Card, CardHeader, DataTable, OriginBadge, PageHeader, Select, Tabs } from '@/components/ui';
-import { reachable } from '@/domain/lineage';
-import { noResult, useAsync } from '@/hooks/useAsync';
+import { InfoTip } from '@/components/InfoTip';
+import { AsyncView, Badge, Button, Card, OriginBadge, PageHeader, Select } from '@/components/ui';
+import { groupEdges, visibleColumnMap, type EdgeGroup } from '@/domain/lineageFlow';
+import { useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
-import type { LineageGraph, TraceNode } from '@/types';
+import type { CatalogEntry, FlowRequest, LineageFlow } from '@/types';
+import { FlowCanvas } from './FlowCanvas';
+import { FlowDetails, type Pick } from './FlowDetails';
+import { EDGE_COLOR, KIND_HINT, LAYER_COLOR, LAYER_LABEL, ROW_CAP } from './flowStyle';
+import { TablePicker } from './TablePicker';
 
-const LAYER_COLOR: Record<string, string> = {
-  CRISMAC: '#64748b', RECEPTION: '#0ea5e9', STAGING: '#d97706', MART: '#4f46e5', APP: '#16a34a', DI: '#db2777',
-};
+const DEFAULT_TABLE = 'FCT_PRODUCT_MASTER';
+const DEFAULT_DEPTH = 2;
+const GUIDE_KEY = 'lineage.guide.open';
+
+function readGuideOpen(): boolean {
+  try { return window.localStorage.getItem(GUIDE_KEY) !== 'false'; } catch { return true; }
+}
 
 export function LineagePage() {
+  const [params] = useSearchParams();
+  const urlTable = params.get('table');
   const [internalOnly, setInternalOnly] = useState(false);
   const [includeNotUsed, setIncludeNotUsed] = useState(false);
-  const [params] = useSearchParams();
-  const [selectedNode, setSelectedNode] = useState(params.get('table') ?? '');
-  const [selectedEdge, setSelectedEdge] = useState<{ source: string; target: string } | null>(null);
-  const graph = useAsync(() => services.lineage.getGraph({ internalOnly, includeNotUsed }), [internalOnly, includeNotUsed]);
+  const [selection, setSelection] = useState<string[] | null>(null);
+  const [upstream, setUpstream] = useState(true);
+  const [downstream, setDownstream] = useState(true);
+  const [depth, setDepth] = useState(DEFAULT_DEPTH);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [showAll, setShowAll] = useState<Set<string>>(new Set());
+  const [pick, setPick] = useState<Pick>({ kind: 'none' });
+  const [arrangeTick, setArrangeTick] = useState(0);
+  const [guideOpen, setGuideOpen] = useState(readGuideOpen);
+
+  const catalog = useAsync(() => services.lineage.getCatalog({ internalOnly, includeNotUsed }), [internalOnly, includeNotUsed]);
+
+  const tables = useMemo(() => {
+    if (selection) return selection;
+    const names = catalog.data?.map((c) => c.name) ?? [];
+    if (urlTable && names.includes(urlTable)) return [urlTable];
+    if (!urlTable && names.includes(DEFAULT_TABLE)) return [DEFAULT_TABLE];
+    return [];
+  }, [selection, catalog.data, urlTable]);
+
+  const req: FlowRequest = useMemo(
+    () => ({ tables, upstream, downstream, depth, internalOnly, includeNotUsed }),
+    // tables is a fresh array only when its content changes (selection state or catalog load)
+    [tables, upstream, downstream, depth, internalOnly, includeNotUsed],
+  );
+  const reqKey = JSON.stringify(req);
+  const flow = useAsync(() => services.lineage.getFlow(req), [reqKey]);
+
+  const visible = useMemo(
+    () => (flow.data ? visibleColumnMap(flow.data.tables, collapsed, showAll, ROW_CAP) : new Map<string, string[]>()),
+    [flow.data, collapsed, showAll],
+  );
+  const groups = useMemo(() => (flow.data ? groupEdges(flow.data.columnEdges, visible) : []), [flow.data, visible]);
+
+  // A new request invalidates whatever was selected inside the old graph.
+  useEffect(() => { setPick({ kind: 'none' }); setCollapsed(new Set()); setShowAll(new Set()); }, [reqKey]);
+
+  const toggleGuide = () => {
+    setGuideOpen((o) => {
+      try { window.localStorage.setItem(GUIDE_KEY, String(!o)); } catch { /* storage unavailable: keep in memory */ }
+      return !o;
+    });
+  };
+
+  const flip = (name: string) => (prev: Set<string>) => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  };
+  const onToggle = useCallback((n: string) => setCollapsed(flip(n)), []);
+  const onShowAll = useCallback((n: string) => setShowAll(flip(n)), []);
+  const onTable = useCallback((n: string) => setPick({ kind: 'table', table: n }), []);
+  const onColumn = useCallback((t: string, c: string) => setPick({ kind: 'column', table: t, column: c }), []);
+  const onEdge = useCallback((id: string) => setPick({ kind: 'edge', id }), []);
+  const onPane = useCallback(() => setPick({ kind: 'none' }), []);
+
+  const reset = () => {
+    setSelection(null);
+    setUpstream(true); setDownstream(true); setDepth(DEFAULT_DEPTH);
+    setInternalOnly(false); setIncludeNotUsed(false);
+    setPick({ kind: 'none' });
+    setArrangeTick((t) => t + 1);
+  };
 
   return (
     <div>
       <PageHeader
         title="Agent 2 · Data Flow & Lineage"
-        description="Table-level lineage aggregated from documented mapping rows, left to right from source feeds to FCT_PRODUCT_MASTER. Click a table to highlight its upstream and downstream path; click an edge to see column mappings."
-        right={<OriginBadge meta={graph.meta} />}
+        description="See where a table's data comes from, how each column is transformed on the way, and where it goes next. Pick tables on the left; the graph traces them for you."
+        right={
+          <div className="flex items-center gap-2">
+            <OriginBadge meta={flow.meta ?? catalog.meta} />
+            <InfoTip title="About Data Flow & Lineage" align="right">
+              <span><b>What it does:</b> draws every documented mapping between tables as an arrow, down to individual columns.</span>
+              <span><b>Why it matters:</b> before moving data from CrisMac to TRAQ you need to know which source feeds which target, and what changes in between.</span>
+              <span><b>How to use it:</b> pick tables, choose how far to trace, then click tables, columns and arrows for details.</span>
+            </InfoTip>
+          </div>
+        }
       />
-      <div className="mb-3 flex flex-wrap items-center gap-4 text-sm">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={internalOnly} onChange={(e) => setInternalOnly(e.target.checked)} /> Internal TRAQ flow only (hide CrisMac sources)</label>
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={includeNotUsed} onChange={(e) => setIncludeNotUsed(e.target.checked)} /> Show NOT USED (dictionary-only) links</label>
-        <div className="ml-auto flex flex-wrap gap-2">
-          {Object.entries(LAYER_COLOR).map(([k, c]) => <span key={k} className="flex items-center gap-1 text-xs text-muted"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c }} />{k}</span>)}
-        </div>
-      </div>
-      <AsyncView state={graph} isEmpty={(g) => g.nodes.length === 0} emptyMessage="No lineage edges found in the workbook for these options.">
-        {(g) => (
-          <div className="grid gap-4 xl:grid-cols-[1fr_26rem]">
-            <GraphCanvas graph={g} selectedNode={selectedNode} onNode={(id) => { setSelectedNode(id); setSelectedEdge(null); }} onEdge={(s, t) => setSelectedEdge({ source: s, target: t })} />
-            <DetailPanel table={selectedNode} edge={selectedEdge} />
+
+      <Card className="mb-3">
+        <button type="button" onClick={toggleGuide} aria-expanded={guideOpen} className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-medium">
+          <span className="flex items-center gap-2"><GitBranch size={15} className="text-primary" /> How to explore lineage</span>
+          {guideOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </button>
+        {guideOpen && (
+          <ol className="anim-fade grid gap-3 border-t border-border px-4 py-3 text-xs text-muted sm:grid-cols-2 xl:grid-cols-4">
+            <Step n={1} title="Pick tables">Tick one or more tables in the list. Search or filter by layer to find them. We start with {DEFAULT_TABLE}, the end point of this project.</Step>
+            <Step n={2} title="Choose a direction">Upstream shows where data originates, downstream shows where it ends up. Raise the depth, or choose All levels, to follow it further.</Step>
+            <Step n={3} title="Read the graph">Left to right is the direction of data. A solid grey arrow is a direct copy; a dashed purple arrow is a transformation. Collapse tables you do not need.</Step>
+            <Step n={4} title="Inspect">Click a table to highlight its path (blue is upstream, green is downstream). Click a column or an arrow to read its mapping and transformation logic.</Step>
+          </ol>
+        )}
+      </Card>
+
+      <AsyncView state={catalog} isEmpty={(c) => c.length === 0} emptyMessage="No lineage found in the workbook for these options. Try turning off 'Internal TRAQ flow only'.">
+        {(entries) => (
+          <div className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)_23rem]">
+            <TablePicker catalog={entries} selected={tables} onChange={setSelection} />
+            <div className="min-w-0 space-y-3">
+              <Controls
+                upstream={upstream} downstream={downstream} depth={depth} internalOnly={internalOnly} includeNotUsed={includeNotUsed}
+                onUpstream={setUpstream} onDownstream={setDownstream} onDepth={setDepth}
+                onInternal={setInternalOnly} onNotUsed={setIncludeNotUsed} onReset={reset} canDeepen={depth > 0 && tables.length > 0}
+              />
+              <Card className="relative h-[66vh] min-h-[28rem] overflow-hidden">
+                <FlowView
+                  flow={flow.data} visible={visible} groups={groups} status={flow.status} error={flow.error} reload={flow.reload} tables={tables} entries={entries}
+                  collapsed={collapsed} showAll={showAll} pick={pick} arrangeTick={arrangeTick}
+                  onToggle={onToggle} onShowAll={onShowAll} onTable={onTable} onColumn={onColumn} onEdge={onEdge} onPane={onPane}
+                  onCollapseAll={(names) => setCollapsed(new Set(names))} onExpandAll={() => { setCollapsed(new Set()); }}
+                  onArrange={() => setArrangeTick((t) => t + 1)}
+                />
+              </Card>
+              <Legend />
+            </div>
+            <DetailsColumn
+              flow={flow.data} groups={groups} pick={pick} selected={tables}
+              onTable={onTable} onTrace={setSelection} onAdd={(n) => setSelection([...tables, n])}
+            />
           </div>
         )}
       </AsyncView>
@@ -46,120 +153,135 @@ export function LineagePage() {
   );
 }
 
-function GraphCanvas({ graph, selectedNode, onNode, onEdge }: {
-  graph: LineageGraph; selectedNode: string; onNode: (id: string) => void; onEdge: (s: string, t: string) => void;
+function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
+  return (
+    <li className="flex gap-2.5">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primarybg text-[11px] font-semibold text-primary">{n}</span>
+      <span><span className="block font-medium text-fg">{title}</span>{children}</span>
+    </li>
+  );
+}
+
+function Controls(p: {
+  upstream: boolean; downstream: boolean; depth: number; internalOnly: boolean; includeNotUsed: boolean; canDeepen: boolean;
+  onUpstream: (v: boolean) => void; onDownstream: (v: boolean) => void; onDepth: (v: number) => void;
+  onInternal: (v: boolean) => void; onNotUsed: (v: boolean) => void; onReset: () => void;
 }) {
-  const focus = useMemo(() => (selectedNode ? reachable(graph, selectedNode) : null), [graph, selectedNode]);
-  const nodes: Node[] = useMemo(() => graph.nodes.map((n) => {
-    const dim = focus && !focus.nodes.has(n.id);
-    return {
-      id: n.id,
-      position: { x: n.rank * 320, y: n.row * 62 },
-      data: { label: `${n.label}` },
-      style: {
-        width: 240, fontSize: 11, padding: 6, borderRadius: 6, color: 'var(--fg)', background: 'var(--surface)',
-        border: `${n.id === selectedNode ? 3 : 1.5}px solid ${LAYER_COLOR[n.layer] ?? '#64748b'}`, opacity: dim ? 0.25 : 1,
-      },
-    };
-  }), [graph, focus, selectedNode]);
-  const edges: Edge[] = useMemo(() => graph.edges.map((e) => {
-    const dim = focus && !focus.edges.has(e.id);
-    return {
-      id: e.id, source: e.source, target: e.target, label: String(e.count),
-      animated: !!focus && focus.edges.has(e.id),
-      markerEnd: { type: MarkerType.ArrowClosed },
-      style: { strokeDasharray: e.notUsedOnly ? '5 4' : undefined, opacity: dim ? 0.12 : 0.9, stroke: 'var(--muted)' },
-      labelStyle: { fontSize: 10, fill: 'var(--muted)' },
-    };
-  }), [graph, focus]);
   return (
-    <Card className="h-[72vh] overflow-hidden">
-      <ReactFlow
-        nodes={nodes} edges={edges} fitView minZoom={0.05} nodesDraggable nodesConnectable={false}
-        onNodeClick={(_, n) => onNode(n.id)} onEdgeClick={(_, e) => onEdge(e.source, e.target)} onPaneClick={() => onNode('')}
-      >
-        <Background /><Controls showInteractive={false} /><MiniMap pannable zoomable />
-      </ReactFlow>
-    </Card>
-  );
-}
-
-type PanelTab = 'columns' | 'edge';
-
-function DetailPanel({ table, edge }: { table: string; edge: { source: string; target: string } | null }) {
-  const [tab, setTab] = useState<PanelTab>('columns');
-  const showEdge = !!edge;
-  const active: PanelTab = showEdge ? 'edge' : tab;
-  return (
-    <Card className="h-[72vh] overflow-auto">
-      <CardHeader title={showEdge ? 'Edge detail' : table ? <span className="font-mono">{table}</span> : 'Details'} subtitle={showEdge ? `${edge!.source} → ${edge!.target}` : 'Select a table or an edge'} />
-      {showEdge ? <EdgePanel source={edge!.source} target={edge!.target} /> : table ? (
-        <div>
-          <Tabs<PanelTab> value={active} onChange={setTab} tabs={[{ id: 'columns', label: 'Column lineage' }]} />
-          <ColumnTrace table={table} />
-        </div>
-      ) : <div className="p-6 text-center text-sm text-muted">Click a table node to trace a column, or an edge to inspect its mappings.</div>}
-    </Card>
-  );
-}
-
-function EdgePanel({ source, target }: { source: string; target: string }) {
-  const state = useAsync(() => services.lineage.getEdgeMappings(source, target), [source, target]);
-  return (
-    <AsyncView state={state} isEmpty={(d) => d.length === 0}>
-      {(rows) => (
-        <DataTable rows={rows} rowKey={(m) => m.id} pageSize={12}
-          columns={[
-            { key: 's', header: 'Source', render: (m) => <span className="font-mono text-xs">{m.sourceColumn || '(none)'}</span> },
-            { key: 't', header: 'Target', render: (m) => <span className="font-mono text-xs">{m.targetColumn || '(none)'}</span> },
-            { key: 'm', header: 'Type', render: (m) => <Badge>{m.mapType || '—'}</Badge> },
-            { key: 'r', header: 'Transformation / remark', render: (m) => <span className="text-xs text-muted" title={`${m.sheet} row ${m.rowNo}`}>{m.remark.length > 140 ? `${m.remark.slice(0, 140)}...` : m.remark || '—'}</span> },
-          ]} />
-      )}
-    </AsyncView>
-  );
-}
-
-function ColumnTrace({ table }: { table: string }) {
-  const cols = useAsync(() => services.lineage.listColumns(table), [table]);
-  const [column, setColumn] = useState('');
-  const [direction, setDirection] = useState<'upstream' | 'downstream'>('upstream');
-  const trace = useAsync(() => (column ? services.lineage.traceColumn(table, column, direction) : noResult<TraceNode>('Pick a column.')), [table, column, direction]);
-  return (
-    <div className="space-y-3 p-3">
-      <div className="flex gap-2">
-        <AsyncView state={cols} isEmpty={(c) => c.length === 0} emptyMessage="No column list for this table in the workbook.">
-          {(c) => (
-            <Select value={column} onChange={(e) => setColumn(e.target.value)} className="min-w-0 flex-1">
-              <option value="">Select a column...</option>
-              {c.map((x) => <option key={x} value={x}>{x}</option>)}
-            </Select>
-          )}
-        </AsyncView>
-        <Select value={direction} onChange={(e) => setDirection(e.target.value as 'upstream' | 'downstream')}>
-          <option value="upstream">Upstream</option><option value="downstream">Downstream</option>
+    <Card className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 text-sm">
+      <span className="flex items-center gap-1.5 font-medium">2. Trace <InfoTip title="Trace options">
+        <span>Upstream = tables that feed your selection. Downstream = tables your selection feeds.</span>
+        <span>Depth is how many table-to-table hops to follow from each selected table.</span>
+      </InfoTip></span>
+      <label className="flex items-center gap-1.5" title="Show where the selected tables get their data"><input type="checkbox" checked={p.upstream} onChange={(e) => p.onUpstream(e.target.checked)} /> Upstream</label>
+      <label className="flex items-center gap-1.5" title="Show which tables the selected tables feed"><input type="checkbox" checked={p.downstream} onChange={(e) => p.onDownstream(e.target.checked)} /> Downstream</label>
+      <label className="flex items-center gap-1.5">Depth
+        <Select value={String(p.depth)} onChange={(e) => p.onDepth(Number(e.target.value))} aria-label="Trace depth" className="h-8">
+          <option value="1">1 level</option><option value="2">2 levels</option><option value="3">3 levels</option><option value="4">4 levels</option><option value="0">All levels</option>
         </Select>
+      </label>
+      <Button variant="outline" size="sm" disabled={!p.canDeepen} onClick={() => p.onDepth(p.depth + 1)} title="Follow the lineage one more hop"><Plus size={13} /> One more level</Button>
+      <label className="flex items-center gap-1.5" title="Hide CrisMac source tables and show only flow between TRAQ tables"><input type="checkbox" checked={p.internalOnly} onChange={(e) => p.onInternal(e.target.checked)} /> TRAQ tables only</label>
+      <label className="flex items-center gap-1.5" title="Include links the workbook marks NOT USED (documented but not loaded)"><input type="checkbox" checked={p.includeNotUsed} onChange={(e) => p.onNotUsed(e.target.checked)} /> Include NOT USED links</label>
+      <Button variant="ghost" size="sm" className="ml-auto" onClick={p.onReset} title="Back to the default table, depth and options"><RotateCcw size={13} /> Reset</Button>
+    </Card>
+  );
+}
+
+interface FlowViewProps {
+  flow: LineageFlow | null; status: 'loading' | 'success' | 'error'; error: string | null; reload: () => void;
+  tables: string[]; entries: CatalogEntry[];
+  collapsed: Set<string>; showAll: Set<string>; pick: Pick; arrangeTick: number;
+  onToggle: (n: string) => void; onShowAll: (n: string) => void; onTable: (n: string) => void;
+  onColumn: (t: string, c: string) => void; onEdge: (id: string) => void; onPane: () => void;
+  onCollapseAll: (names: string[]) => void; onExpandAll: () => void; onArrange: () => void;
+}
+
+function FlowView(p: FlowViewProps & { visible: Map<string, string[]>; groups: EdgeGroup[] }) {
+  const { flow, collapsed, showAll, visible, groups } = p;
+  if (p.tables.length === 0) {
+    return <CenterMessage title="No table selected" body="Tick a table in the list on the left to see where its data comes from and where it goes." />;
+  }
+  if (p.status === 'error' && !flow) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-bad">
+        <div className="font-medium">The graph could not be built</div>
+        <div className="text-muted">{p.error}</div>
+        <Button variant="outline" size="sm" onClick={p.reload}>Retry</Button>
       </div>
-      {column && (
-        <AsyncView state={trace}>
-          {(t) => (t.children.length === 0
-            ? <div className="text-xs text-muted">No documented {direction} mapping for this column in the workbook.</div>
-            : <TraceTree node={t} depth={0} />)}
-        </AsyncView>
+    );
+  }
+  if (!flow) return <CenterMessage title="Tracing lineage..." body="Following the documented mappings." busy />;
+  if (flow.tables.length === 0) {
+    return <CenterMessage title="No documented lineage" body={`${flow.untraceable.join(', ')} has no mapping rows under the current options. Try including NOT USED links, or pick another table.`} />;
+  }
+  const focus = p.pick.kind === 'table' ? p.pick.table : p.pick.kind === 'column' ? p.pick.table : '';
+  return (
+    <>
+      <FlowCanvas
+        flow={flow} groups={groups} visible={visible} collapsed={collapsed} showAll={showAll}
+        focus={focus} activeColumn={p.pick.kind === 'column' ? { table: p.pick.table, column: p.pick.column } : null}
+        selectedEdge={p.pick.kind === 'edge' ? p.pick.id : ''} arrangeTick={p.arrangeTick}
+        onToggle={p.onToggle} onShowAll={p.onShowAll} onTable={p.onTable} onColumn={p.onColumn} onEdge={p.onEdge} onPane={p.onPane}
+        onCollapseAll={() => p.onCollapseAll(flow.tables.map((t) => t.name))} onExpandAll={p.onExpandAll} onArrange={p.onArrange}
+      />
+      {p.status === 'loading' && <div className="anim-fade pointer-events-none absolute right-3 top-3 rounded bg-surface2 px-2 py-1 text-xs text-muted">Updating...</div>}
+      {flow.untraceable.length > 0 && (
+        <div className="absolute bottom-3 left-3 max-w-xs rounded border border-border bg-surface p-2 text-xs text-muted shadow">
+          No documented lineage for: <span className="font-mono">{flow.untraceable.join(', ')}</span>
+        </div>
       )}
+    </>
+  );
+}
+
+function CenterMessage({ title, body, busy }: { title: string; body: string; busy?: boolean }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-1.5 p-6 text-center">
+      <GitBranch size={22} className={busy ? 'animate-pulse text-primary' : 'text-muted'} />
+      <div className="text-sm font-medium">{title}</div>
+      <div className="max-w-sm text-xs text-muted">{body}</div>
     </div>
   );
 }
 
-function TraceTree({ node, depth }: { node: TraceNode; depth: number }) {
+function DetailsColumn(p: {
+  flow: LineageFlow | null; groups: EdgeGroup[]; pick: Pick; selected: string[];
+  onTable: (n: string) => void; onTrace: (t: string[]) => void; onAdd: (n: string) => void;
+}) {
+  const { groups } = p;
+  if (!p.flow || p.flow.tables.length === 0) {
+    return (
+      <Card className="min-h-[12rem] p-4 text-sm text-muted">
+        <div className="mb-1 font-medium text-fg">3. Inspect</div>
+        Details for the table, column or arrow you click will appear here: source and target, MAP TYPE and the transformation text from the workbook.
+      </Card>
+    );
+  }
+  return <FlowDetails flow={p.flow} groups={groups} pick={p.pick} selected={p.selected} onTable={p.onTable} onTrace={p.onTrace} onAdd={p.onAdd} />;
+}
+
+function Legend() {
   return (
-    <div className={depth ? 'ml-4 border-l border-border pl-3' : ''}>
-      <div className="py-1 text-xs">
-        <span className="font-mono">{node.table}.{node.column}</span>{' '}
-        {node.mapType !== undefined && <Badge>{node.mapType || '—'}</Badge>}
-        {node.remark && <div className="mt-0.5 text-[11px] text-muted" title={`${node.sheet} row ${node.rowNo}`}>{node.remark.length > 160 ? `${node.remark.slice(0, 160)}...` : node.remark}</div>}
-      </div>
-      {node.children.map((c, i) => <TraceTree key={`${c.table}.${c.column}.${i}`} node={c} depth={depth + 1} />)}
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-muted" aria-label="Legend">
+      <LegendLine label="Direct copy" hint={KIND_HINT.direct} color={EDGE_COLOR.direct} />
+      <LegendLine label="Transformed" hint={KIND_HINT.transformed} color={EDGE_COLOR.transformed} dash="6 4" />
+      <LegendLine label="Type not stated" hint={KIND_HINT.unspecified} color={EDGE_COLOR.unspecified} dash="2 3" />
+      <LegendLine label="Upstream of clicked table" hint="Highlighted when you click a table" color={EDGE_COLOR.upstream} />
+      <LegendLine label="Downstream of clicked table" hint="Highlighted when you click a table" color={EDGE_COLOR.downstream} />
+      <span className="ml-auto flex flex-wrap items-center gap-2">
+        {Object.entries(LAYER_COLOR).map(([k, c]) => <span key={k} className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c }} />{LAYER_LABEL[k] ?? k}</span>)}
+        <Badge tone="ok">Workbook-derived</Badge>
+      </span>
     </div>
+  );
+}
+
+function LegendLine({ label, hint, color, dash }: { label: string; hint: string; color: string; dash?: string }) {
+  return (
+    <span className="flex items-center gap-1.5" title={hint}>
+      <svg width="26" height="8" aria-hidden="true"><line x1="0" y1="4" x2="20" y2="4" stroke={color} strokeWidth="2" strokeDasharray={dash} /><polygon points="20,0 26,4 20,8" fill={color} /></svg>
+      {label}
+    </span>
   );
 }

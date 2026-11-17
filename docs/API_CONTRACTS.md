@@ -17,6 +17,8 @@ On failure `data` is null and `error` is `{ "code": "...", "message": "..." }`. 
 | | `GET /datamodel/export` | - | `WorkbookModel` (full structured metadata) |
 | | `GET /datamodel/compare?source=&target=` | query | `TableComparison` |
 | Lineage | `GET /lineage/graph?includeNotUsed=&internalOnly=` | query | `LineageGraph` |
+| | `GET /lineage/catalog?includeNotUsed=&internalOnly=` | query | `CatalogEntry[]` (table picker) |
+| | `POST /lineage/flow` | `FlowRequest` | `LineageFlow` (column-level flow for the selected tables) |
 | | `GET /lineage/edge?source=&target=` | query | `MappingRow[]` |
 | | `GET /lineage/trace?table=&column=&direction=` | query | `TraceNode` |
 | | `GET /datamodel/tables/{name}/columns` | - | `string[]` |

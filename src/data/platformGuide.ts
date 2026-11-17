@@ -41,10 +41,11 @@ export const PLATFORM_GUIDE: PlatformTopic[] = [
     id: 'lineage', title: 'Data Flow & Lineage screen', route: '/lineage',
     keywords: ['lineage', 'graph', 'flow', 'trace', 'column lineage', 'upstream', 'downstream', 'diagram', 'react flow'],
     text: [
-      '**2 Data Flow & Lineage** draws a graph of tables connected by mappings.',
-      '- Click a table to highlight what feeds it and what it feeds; click an edge to see the mapping rows behind it.',
-      '- The Column lineage panel traces one column upstream or downstream through the mapping rows.',
-      '- Links from other screens open it with a table preselected.',
+      '**2 Data Flow & Lineage** draws tables as boxes with their columns, connected by arrows for each documented column mapping.',
+      '- Pick tables in the list on the left (search, filter by layer or system). The graph shows where each table gets its data (upstream) and where it goes (downstream); choose the direction and depth above the graph.',
+      '- Solid grey arrows are direct copies (MAP TYPE DIRECT or RENAME); dashed purple arrows are transformations. Click an arrow to see source and target column, MAP TYPE and the remark text from the workbook.',
+      '- Click a table to highlight its path (blue upstream, green downstream); click a column row to trace it hop by hop. Collapse or expand tables, use Auto-arrange, zoom, pan and the mini map.',
+      '- Links from other screens open it with a table preselected. Reset returns to the default table.',
     ].join('\n'),
   },
   {

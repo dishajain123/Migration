@@ -17,6 +17,8 @@ export const config = {
     lineage: '/lineage/graph',
     lineageTrace: '/lineage/trace',
     lineageEdge: '/lineage/edge',
+    lineageCatalog: '/lineage/catalog',
+    lineageFlow: '/lineage/flow',
     procedures: '/procedures',
     expressions: '/procedures/expressions',
     procSources: '/procedures/sources',

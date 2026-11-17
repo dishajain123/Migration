@@ -20,7 +20,11 @@ React + TypeScript + Vite, Tailwind, shadcn/ui, Lucide, React Flow, Recharts, Zu
 - Dark/light theme via CSS variables; responsive; accessible.
 
 ## Phases (track in docs/IMPLEMENTATION_PLAN.md)
-0 Foundation, 1 Data Model, 2 Lineage, 3 Procedures, 4 Mapping, 5 Rules, 6 Integration, 7 Guidance chatbot and resizable sidebar, 8 Source procedure SQL and TRAQ traceability. Finish, build, test and document each phase before the next. One phase per cycle.
+0 Foundation, 1 Data Model, 2 Lineage, 3 Procedures, 4 Mapping, 5 Rules, 6 Integration, 7 Guidance chatbot and resizable sidebar, 8 Source procedure SQL and TRAQ traceability, 9 Column-level lineage explorer, 10 SQL-to-CSV rule conversion (planned), 11 Application-wide UX pass (planned). Finish, build, test and document each phase before the next. One phase per cycle.
+
+## Lineage explorer (Phase 9)
+- Pure logic in `src/domain/lineageFlow.ts` (traversal, column edges, grouping, layout); service methods `getCatalog` and `getFlow`; UI in `src/features/lineage/*`. Arrows are workbook mapping rows only; direct vs transformed comes from MAP TYPE, transformation text is the workbook remark verbatim. Do not add layout or tracing logic to components.
+- Reusable help: `src/components/InfoTip.tsx` (`InfoTip`, `Term`). Motion is CSS only (`anim-*` classes, disabled under reduced motion). Backlog and acceptance criteria for Phases 9-11: docs/IMPLEMENTATION_PLAN.md.
 
 ## Guidance chatbot and sidebar (Phase 7)
 - The chatbot is a mock RAG pipeline, never an LLM. `ChatService` (`src/services/types.ts`) composes three swappable stages from `src/services/chat/pipeline.ts`: `KnowledgeRetriever` -> `ContextBuilder` -> `ResponseGenerator` (plus `SuggestionProvider`). Real RAG replaces the stages (embeddings + vector DB + LLM) or the whole service via `http.ts` (`/chat/ask`).

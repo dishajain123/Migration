@@ -1,5 +1,5 @@
 import type {
-  ApiResult, BusinessRule, ChatAnswer, ChatRequest, DdExport, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
+  ApiResult, BusinessRule, CatalogEntry, FlowRequest, LineageFlow, ChatAnswer, ChatRequest, DdExport, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
   MappingRow, ProcObject, Relationship, ReviewDecision, ScopeInfo, SqlAnalysis, Suggestion, SystemKind, TableComparison, TableDetail,
   TableSummary, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel,
 } from '@/types';
@@ -16,6 +16,10 @@ export interface DataModelService {
 
 export interface LineageService {
   getGraph(opts: LineageOptions): Promise<ApiResult<LineageGraph>>;
+  /** Every table that has lineage, with upstream/downstream counts, for the table picker. */
+  getCatalog(opts: LineageOptions): Promise<ApiResult<CatalogEntry[]>>;
+  /** Column-level flow for the selected tables: upstream/downstream tables, column mappings, documented procedures. */
+  getFlow(req: FlowRequest): Promise<ApiResult<LineageFlow>>;
   getEdgeMappings(source: string, target: string): Promise<ApiResult<MappingRow[]>>;
   traceColumn(table: string, column: string, direction: 'upstream' | 'downstream'): Promise<ApiResult<TraceNode>>;
   listColumns(table: string): Promise<ApiResult<string[]>>;

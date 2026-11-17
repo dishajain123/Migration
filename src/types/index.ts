@@ -210,6 +210,67 @@ export interface TraceNode {
   children: TraceNode[];
 }
 
+// ---------- Agent 2: column-level flow (Phase 9) ----------
+/** What the user picked: tables to trace and how far. depth 0 = unlimited. */
+export interface FlowRequest extends LineageOptions {
+  tables: string[];
+  upstream: boolean;
+  downstream: boolean;
+  depth: number;
+}
+export interface CatalogEntry {
+  name: string;
+  system: SystemKind;
+  layer: Layer;
+  columnCount: number;
+  /** Tables that feed it, directly or indirectly. */
+  upstreamCount: number;
+  downstreamCount: number;
+  /** Tables that feed it directly. */
+  directSources: number;
+}
+export type FlowRole = 'selected' | 'upstream' | 'downstream';
+/** direct = MAP TYPE DIRECT/RENAME; transformed = any other feeding MAP TYPE; unspecified = blank MAP TYPE. */
+export type FlowKind = 'direct' | 'transformed' | 'unspecified';
+export interface FlowTable {
+  name: string;
+  system: SystemKind;
+  layer: Layer;
+  role: FlowRole;
+  /** Layer index in the left-to-right layout (0 = furthest upstream). */
+  rank: number;
+  columnCount: number;
+  /** Columns that take part in a visible column mapping, in table order. */
+  columns: string[];
+}
+export interface FlowColumnEdge {
+  id: string;
+  sourceTable: string;
+  /** Empty when the mapping row names no source column (constant or derived). */
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+  mapType: string;
+  kind: FlowKind;
+  /** Remark text from the workbook, verbatim. Empty when none. */
+  transformation: string;
+  sheet: string;
+  rowNo: number;
+}
+export interface FlowTableEdge extends LineageEdge {
+  /** Procedures/views/DI mappings the workbook mentions together with both tables (a name match, not a documented link). */
+  procedures: { name: string; kind: ProcKind }[];
+}
+export interface LineageFlow {
+  request: FlowRequest;
+  tables: FlowTable[];
+  tableEdges: FlowTableEdge[];
+  columnEdges: FlowColumnEdge[];
+  /** Requested tables that have no lineage edge under the current options. */
+  untraceable: string[];
+  stats: { upstream: number; downstream: number; direct: number; transformed: number; unspecified: number };
+}
+
 // ---------- Agent 3: procedures ----------
 export type ProcKind = 'view' | 'traq-procedure' | 'di-mapping' | 'di-workflow' | 'crismac-procedure' | 'crismac-object';
 export interface ProcReference { sheet: string; rowNo: number; snippet: string }

@@ -26,3 +26,17 @@ body { background: var(--bg); color: var(--fg); font-family: Inter, ui-sans-seri
 .react-flow__controls-button svg { fill: var(--fg); }
 .react-flow__minimap { background: var(--surface); }
 .react-flow__attribution { display: none; }
+.react-flow__edge-text { font-size: 10px; }
+.react-flow__handle { width: 7px; height: 7px; min-width: 0; min-height: 0; background: var(--muted); border: 1px solid var(--surface); }
+.react-flow__panel { color: var(--fg); }
+
+/* Subtle, purposeful motion. All of it is switched off below for users who ask for reduced motion. */
+@keyframes anim-pop { from { opacity: 0; transform: translateY(-3px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes anim-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes anim-slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.anim-pop { animation: anim-pop 140ms ease-out; }
+.anim-fade { animation: anim-fade 180ms ease-out; }
+.anim-slide-up { animation: anim-slide-up 220ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
