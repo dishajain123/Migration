@@ -99,7 +99,11 @@ export interface AiInsight {
 export type GatewayErrorCode =
   | 'UNAUTHENTICATED' | 'NOT_CONFIGURED' | 'MISSING_KEY' | 'INVALID_KEY' | 'PERMISSION_DENIED' | 'RATE_LIMITED'
   | 'QUOTA_EXHAUSTED' | 'SERVER_ERROR' | 'TIMEOUT' | 'INCOMPATIBLE' | 'MODEL_NOT_FOUND' | 'UNREACHABLE' | 'BAD_REQUEST'
-  | 'PROVIDER_ERROR';
+  | 'PROVIDER_ERROR'
+  /** Guardrails rejected the message before it was sent to the model (prompt injection, secrets, destructive SQL intent). */
+  | 'BLOCKED_INPUT'
+  /** Guardrails withheld the model's answer (e.g. a leaked credential near the start of the response). */
+  | 'BLOCKED_OUTPUT';
 
 // ---- Chatbot (RAG over project knowledge) ----
 export interface ChatStreamTurn { role: 'user' | 'assistant'; text: string }
@@ -124,8 +128,11 @@ export interface ChatSource {
 export type ChatStreamEvent =
   | { type: 'meta'; sources: ChatSource[]; retrieval: { mode: 'hybrid' | 'keyword'; entities: string[]; note?: string } }
   | { type: 'delta'; text: string }
-  /** provider/model are absent when the answer needed no model call (nothing relevant was retrieved). */
-  | { type: 'done'; provider?: ProviderId; model?: string; kind: 'grounded' | 'not-found' | 'smalltalk' }
+  /**
+   * provider/model are absent when the answer needed no model call (nothing relevant was retrieved). `warning` is set
+   * by output guardrails: a heuristic flag shown to the user, never a silent rewrite of the answer.
+   */
+  | { type: 'done'; provider?: ProviderId; model?: string; kind: 'grounded' | 'not-found' | 'smalltalk'; warning?: 'unverified-claim' | 'fabricated-citation' }
   | { type: 'error'; code: GatewayErrorCode; message: string };
 
 /** Knowledge chunks are built in the browser from the workbook and docs, then synced to the gateway for indexing. */

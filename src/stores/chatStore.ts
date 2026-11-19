@@ -4,6 +4,7 @@ import { services } from '@/services';
 import type { ChatMessage, ChatTurn } from '@/types';
 import type { ChatStreamEvent } from '@/types/ai';
 import { withRateLimitRecovery } from './rateLimitStore';
+import { useVoiceStore } from './voiceStore';
 
 const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 const HISTORY_TURNS = 8;
@@ -62,7 +63,7 @@ export const useChatStore = create<ChatState>()(
             });
             if (res.data) {
               const d = res.data;
-              patch(reply.id, (m) => ({ ...m, streaming: false, meta: res.meta, ai: { sources: m.ai?.sources ?? [], retrieval: m.ai?.retrieval, note: m.ai?.note, kind: d.kind, provider: d.provider, model: d.model } }));
+              patch(reply.id, (m) => ({ ...m, streaming: false, meta: res.meta, ai: { sources: m.ai?.sources ?? [], retrieval: m.ai?.retrieval, note: m.ai?.note, kind: d.kind, provider: d.provider, model: d.model, warning: d.warning } }));
             } else if (res.error?.code === 'ABORTED') {
               patch(reply.id, (m) => ({ ...m, streaming: false, text: m.text || 'Stopped.' }));
             } else {
@@ -83,7 +84,7 @@ export const useChatStore = create<ChatState>()(
           set({ messages: msgs.slice(0, idx) });
           await get().send(text, route);
         },
-        clear: () => { controller?.abort(); set({ messages: [], pending: false }); },
+        clear: () => { controller?.abort(); useVoiceStore.getState().stop(); set({ messages: [], pending: false }); },
       };
     },
     {

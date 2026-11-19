@@ -679,7 +679,11 @@ export interface ChatMessage {
   meta?: ApiMeta;
   isError?: boolean;
   /** AI answer details (set by the streaming assistant). */
-  ai?: { sources: ChatSource[]; kind: AnswerKind; provider?: string; model?: string; retrieval?: 'hybrid' | 'keyword'; note?: string };
+  ai?: {
+    sources: ChatSource[]; kind: AnswerKind; provider?: string; model?: string; retrieval?: 'hybrid' | 'keyword'; note?: string;
+    /** Output-guardrail flag: a heuristic, never a silent rewrite of the answer. */
+    warning?: 'unverified-claim' | 'fabricated-citation';
+  };
   /** True while tokens are still arriving. */
   streaming?: boolean;
   /** Gateway error code for failed answers, e.g. RATE_LIMITED. */

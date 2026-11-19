@@ -1,11 +1,13 @@
-import { AlertTriangle, Bot, Check, Copy, Loader2, RefreshCw, User } from 'lucide-react';
+import { AlertTriangle, Bot, Check, Copy, Loader2, RefreshCw, ShieldAlert, User } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { extractCitedTags } from '@/domain/citations';
 import { cn } from '@/lib/cn';
 import type { ChatMessage, KnowledgeKind, SourceRef } from '@/types';
 import { Badge, Button } from '../ui';
 import { RichText } from './RichText';
 import { SourceList } from './SourceList';
+import { SpeakButton } from './SpeakButton';
 
 interface Props {
   message: ChatMessage;
@@ -35,7 +37,7 @@ export function MessageBubble({ message, onAsk, onRetry, onNavigate, isLast, dis
   // Show the sources the answer actually cites ([S1] ...); if it cites none, show the top few retrieved.
   const shown: SourceRef[] = useMemo(() => {
     if (!ai) return [];
-    const cited = new Set(Array.from(message.text.matchAll(/\[(S\d+)\]/g), (m) => m[1]));
+    const cited = new Set(extractCitedTags(message.text));
     const pool = cited.size ? ai.sources.filter((s) => cited.has(s.tag)) : ai.sources.slice(0, 3);
     return pool.map((s) => ({ kind: s.kind as KnowledgeKind, label: `${s.tag.slice(1)} · ${s.label}`, sheet: s.sheet, rowNo: s.rowNo, route: s.route }));
   }, [ai, message.text]);
@@ -58,10 +60,16 @@ export function MessageBubble({ message, onAsk, onRetry, onNavigate, isLast, dis
       <div className={cn('min-w-0 max-w-[92%] rounded-lg rounded-tl-sm border px-3 py-2', message.isError ? 'border-bad bg-badbg text-bad' : 'border-border bg-surface')}>
         {message.isError ? (
           <div role="alert">
-            <div className="flex items-center gap-1.5 text-sm font-medium"><AlertTriangle size={14} /> {message.errorCode === 'RATE_LIMITED' ? 'Rate limit reached' : 'The assistant could not answer'}</div>
+            <div className="flex items-center gap-1.5 text-sm font-medium">
+              {message.errorCode === 'BLOCKED_INPUT' || message.errorCode === 'BLOCKED_OUTPUT' ? <ShieldAlert size={14} /> : <AlertTriangle size={14} />}
+              {message.errorCode === 'RATE_LIMITED' ? 'Rate limit reached'
+                : message.errorCode === 'BLOCKED_INPUT' ? 'Message blocked'
+                  : message.errorCode === 'BLOCKED_OUTPUT' ? 'Answer withheld'
+                    : 'The assistant could not answer'}
+            </div>
             <p className="mt-1 whitespace-pre-wrap break-words text-sm">{message.text}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              {isLast && <Button variant="outline" size="sm" onClick={onRetry} disabled={disabled}><RefreshCw size={12} /> Retry</Button>}
+              {isLast && message.errorCode !== 'BLOCKED_INPUT' && <Button variant="outline" size="sm" onClick={onRetry} disabled={disabled}><RefreshCw size={12} /> Retry</Button>}
               {message.errorCode && SETTINGS_CODES.has(message.errorCode) && <Link to="/ai-settings" onClick={onNavigate} className="text-xs font-medium underline">Open AI Settings</Link>}
             </div>
           </div>
@@ -80,12 +88,15 @@ export function MessageBubble({ message, onAsk, onRetry, onNavigate, isLast, dis
                   {ai?.kind === 'grounded' && <Badge tone="ok">Grounded in project knowledge</Badge>}
                   {ai?.kind === 'not-found' && <Badge tone="warn">Not found - no guess made</Badge>}
                   {ai?.retrieval && <Badge>{ai.retrieval === 'hybrid' ? 'Hybrid search' : 'Keyword search'}</Badge>}
+                  {ai?.warning === 'fabricated-citation' && <Badge tone="warn"><ShieldAlert size={10} className="mr-0.5 inline" /> Citation could not be verified</Badge>}
+                  {ai?.warning === 'unverified-claim' && <Badge tone="warn"><ShieldAlert size={10} className="mr-0.5 inline" /> Some details are unverified</Badge>}
                   {legacy && <Badge tone="warn">Simulated answer</Badge>}
                 </div>
                 {ai?.note && <p className="mt-1 text-[11px] text-muted">{ai.note}</p>}
                 <SourceList sources={ai ? shown : legacy?.sources ?? []} onNavigate={onNavigate} />
                 <div className="mt-1.5 flex items-center gap-1">
                   <CopyButton text={message.text} />
+                  <SpeakButton messageId={message.id} text={message.text} sources={ai?.sources} />
                   {isLast && <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[11px] text-muted" onClick={onRetry} disabled={disabled} aria-label="Regenerate answer"><RefreshCw size={12} /> Regenerate</Button>}
                 </div>
                 {isLast && legacy && legacy.followUps.length > 0 && (

@@ -39,6 +39,7 @@ React + TypeScript + Vite, Tailwind, shadcn/ui, Lucide, React Flow, Recharts, Zu
 - When a screen, tab or button changes, update `src/data/platformGuide.ts`; when docs change, `src/data/docs.ts` already picks them up at build time. Add new knowledge by adding chunks in `knowledge.ts`, not by special-casing answers.
 - UI: `src/components/chat/*` (reusable, no business logic), state in `src/stores/chatStore.ts` (session-scoped) and `layoutStore.ts` (sidebar and panel sizes, localStorage).
 - Sidebar: collapse button + pointer-drag handle (`usePointerDrag`), widths in `SIDEBAR` constants, icon tooltips when collapsed, mobile keeps the drawer. Drag below `SIDEBAR.snapBelow` collapses.
+- The chatbot is extended (not replaced) with a deterministic input/output guardrails layer (`server/src/guardrails/`), browser-native voice input (Web Speech API, `src/services/voice/speechToText.ts`) and text-to-speech (`window.speechSynthesis`, `src/services/voice/textToSpeech.ts`), plus an optional Voice Conversation Mode toggle in `ChatPanel.tsx`. See `docs/AI_GATEWAY.md` ("Guardrails" and "Voice" sections) and the guidance-chatbot skill.
 
 ## Source procedure SQL and TRAQ traceability (Phase 8)
 - Inputs: 14 CrisMac procedure SQL files in `public/data/latest dd output/<proc>/` listed in `manifest.json`, plus an optional `dd_export.csv` per folder (the `.xlsx` files cannot be read; export to CSV). Loader: `src/services/procSource.ts` (mock services only; handles UTF-16 and the dev server's HTML fallback).

@@ -5,6 +5,7 @@ import type { ChatStreamEvent, CompletionRequest, KnowledgeStatus, ProviderId, S
 import type { ChatOrchestrator } from './chatbot/orchestrator';
 import type { Env } from './config/env';
 import type { AiGateway } from './gateway';
+import { checkInput } from './guardrails/inputGuardrails';
 import type { KnowledgeBase } from './knowledge_base/knowledgeBase';
 import { isProviderId } from './providers/registry';
 import { GatewayError, type FetchLike } from './providers/types';
@@ -124,6 +125,11 @@ export function createApp(deps: AppDeps): Server {
       }
       if (method === 'POST' && parts[1] === 'chat') {
         const body = parseChatRequest(await readJson(req));
+        const guard = checkInput(body.question, body.history);
+        if (!guard.allowed) {
+          log(`guardrail blocked input reason=${guard.reason}`); // never log the message/matched text itself
+          throw new GatewayError('BLOCKED_INPUT', guard.message ?? 'This message cannot be processed.', 400);
+        }
         const abort = new AbortController();
         res.on('close', () => abort.abort());
         return await streamChat(res, chat.run(uid, body, abort.signal), abort, meta);

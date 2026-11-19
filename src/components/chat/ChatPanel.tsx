@@ -1,4 +1,4 @@
-import { Bot, Maximize2, Minimize2, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { Bot, Headphones, Maximize2, Minimize2, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { usePointerDrag } from '@/hooks/usePointerDrag';
@@ -6,6 +6,8 @@ import { cn } from '@/lib/cn';
 import { useAiStore } from '@/stores/aiStore';
 import { CHAT_PANEL, useLayoutStore } from '@/stores/layoutStore';
 import { useChatStore } from '@/stores/chatStore';
+import { useVoiceStore } from '@/stores/voiceStore';
+import { toSpeechText } from '@/domain/plainText';
 import { Button } from '../ui';
 import { ChatInput } from './ChatInput';
 import { MessageBubble } from './MessageBubble';
@@ -49,6 +51,19 @@ export function ChatPanel({ route, onClose }: { route: string; onClose: () => vo
   const lastLen = messages.length ? messages[messages.length - 1].text.length : 0;
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [messages.length, pending, lastLen]);
 
+  const { voiceMode, setVoiceMode, speak, stop: stopSpeaking } = useVoiceStore();
+  const spokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!voiceMode) return;
+    const last = messages[messages.length - 1];
+    if (last?.role === 'assistant' && !last.streaming && !last.isError && last.text.trim() && spokenRef.current !== last.id) {
+      spokenRef.current = last.id;
+      speak(last.id, toSpeechText(last.text, last.ai?.sources));
+    }
+  }, [voiceMode, messages, speak]);
+  // Stop any in-progress speech when the panel is closed/unmounted; voiceMode off stops it immediately (see voiceStore).
+  useEffect(() => () => stopSpeaking(), [stopSpeaking]);
+
   const large = chatW >= 700;
   const toggleSize = () => {
     if (large) setChatSize(CHAT_PANEL.initialW, CHAT_PANEL.initialH);
@@ -83,6 +98,14 @@ export function ChatPanel({ route, onClose }: { route: string; onClose: () => vo
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            variant={voiceMode ? 'default' : 'ghost'} size="icon" onClick={() => setVoiceMode(!voiceMode)}
+            aria-label={voiceMode ? 'Turn off voice conversation mode' : 'Turn on voice conversation mode'}
+            aria-pressed={voiceMode}
+            title="Voice conversation mode: auto-read replies aloud"
+          >
+            <Headphones size={14} />
+          </Button>
           <Button variant="ghost" size="icon" className="hidden sm:inline-flex" onClick={toggleSize} aria-label={large ? 'Restore panel size' : 'Maximise panel'} title={large ? 'Restore size' : 'Maximise'}>
             {large ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </Button>

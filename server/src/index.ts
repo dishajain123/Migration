@@ -18,7 +18,7 @@ const gateway = new AiGateway(new SettingsStore(join(dataDir, 'providers.json'),
 });
 const kb = new KnowledgeBase(join(dataDir, 'knowledge.json'));
 const vectors = new VectorStore(dataDir);
-const chat = new ChatOrchestrator(gateway, kb, new HybridRetriever(kb, vectors), fetch);
+const chat = new ChatOrchestrator(gateway, kb, new HybridRetriever(kb, vectors), fetch, undefined, log);
 const port = Number(process.env.GATEWAY_PORT ?? 8787);
 // Loopback only: this demo has no real authentication.
 createApp({ gateway, chat, kb, vectors, fetchImpl: fetch, log }).listen(port, '127.0.0.1', () => log(`listening on http://127.0.0.1:${port}`));

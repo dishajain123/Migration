@@ -21,6 +21,19 @@
 - **Keys**: set `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` in a git-ignored `.env` (see `.env.example`; `npm run gateway` loads it) or save one per user in AI Settings, which overrides. Keys are never returned by any endpoint, stored in the browser, or logged.
 - **Not verified**: none of this has been run against live providers; the tests (`server/src/*.test.ts`) use mocked responses.
 
+## Guardrails
+- Deterministic, regex/heuristic checks in `server/src/guardrails/` - no extra LLM call, so legitimate SQL/procedure questions are never blocked by a keyword blacklist alone.
+  - **Input** (`inputGuardrails.ts`, run in `app.ts` before `ChatOrchestrator.run()` - a block never opens the SSE stream, reaches the model, or is logged beyond its reason code): prompt-injection / instruction-override phrasing, secret/credential-shaped strings, and destructive-SQL *execution* intent (a destructive verb plus "run/execute ... on the database", not "explain this DROP statement"). Returns the new `BLOCKED_INPUT` error code as a normal JSON `ApiResult` error.
+  - **Output** (`outputGuardrails.ts`, run in `ChatOrchestrator.run()`): a bounded prefix (400 chars) of the streamed answer is re-checked for leaked credentials before those tokens are emitted (`BLOCKED_OUTPUT` on a hit - tokens already streamed past that prefix cannot be un-sent, so this is a best-effort mitigation, not a guarantee). After the full answer is known, a citation that cites an `[S#]` tag never actually retrieved is unambiguous and hard-blocked the same way (`FABRICATED_CITATION`); anything softer - an entity-shaped claim with no citation at all - is a non-blocking `warning` on the `done` event (`unverified-claim` or `fabricated-citation`), shown in the UI as a flag to double-check, never a silent rewrite.
+- `[S#]` citation extraction is shared (`src/domain/citations.ts`) so the client's source list and the server's groundedness check always agree on what the answer actually cited.
+
+## Voice (speech-to-text / text-to-speech)
+- Both are browser-native, client-only, and feed/consume the existing `/gateway/chat` flow unchanged - no new server endpoint, no new dependency, no raw audio stored.
+- **Speech-to-text**: `src/services/voice/speechToText.ts` wraps the Web Speech API (`SpeechRecognition`/`webkitSpeechRecognition`); `src/hooks/useSpeechToText.ts` drives the mic button in `ChatInput.tsx`. The transcript always lands in the editable textarea - never auto-sent, even in Voice Conversation Mode - so the user reviews/edits before pressing Send. Unsupported browsers simply hide the mic button; text chat is unaffected.
+- **Text-to-speech**: `src/services/voice/textToSpeech.ts` wraps `window.speechSynthesis`; `src/domain/plainText.ts` strips Markdown (including `[S#]` tags) before speaking. `SpeakButton.tsx` (per assistant message) and `src/stores/voiceStore.ts` (one speaking message at a time, rate, voice) provide play/pause/stop/replay/speed controls.
+- **Voice Conversation Mode**: a headset toggle in `ChatPanel.tsx` header. When on, the assistant's reply is read aloud automatically once it finishes streaming (`done`, not mid-stream); the mic does not re-arm itself afterward. Speech stops when the panel closes, `clear()` runs, or the toggle is switched off.
+- Both services are defined behind small interfaces specifically so a future cloud STT/TTS provider could be added later without changing any chat UI code.
+
 ## Run
 1. `npm install` (adds `tsx`)
 2. Terminal 1: `npm run gateway` (127.0.0.1:8787). Terminal 2: `npm run dev` (Vite proxies `/gateway`).

@@ -23,7 +23,7 @@ export interface AiGatewayClient {
   knowledgeStatus(): Promise<ApiResult<KnowledgeStatus>>;
   pushKnowledge(hash: string, chunks: KnowledgeChunk[]): Promise<ApiResult<KnowledgeStatus>>;
   /** RAG chat over the synced knowledge. Resolves once the stream ends; text and sources arrive through `onEvent`. */
-  chatStream(req: ChatStreamRequest, onEvent: (e: ChatStreamEvent) => void, signal?: AbortSignal): Promise<ApiResult<{ kind: 'grounded' | 'not-found' | 'smalltalk'; provider?: ProviderId; model?: string }>>;
+  chatStream(req: ChatStreamRequest, onEvent: (e: ChatStreamEvent) => void, signal?: AbortSignal): Promise<ApiResult<{ kind: 'grounded' | 'not-found' | 'smalltalk'; provider?: ProviderId; model?: string; warning?: 'unverified-claim' | 'fabricated-citation' }>>;
 }
 
 // The signed-in user id is supplied by the auth layer (see stores/authStore.ts) so services never import stores.
@@ -80,7 +80,7 @@ export function createAiGatewayClient(getUserId: () => string | null): AiGateway
           const e = JSON.parse(data) as ChatStreamEvent;
           onEvent(e);
           if (e.type === 'error') return fail(e.code, e.message);
-          if (e.type === 'done') done = { data: { kind: e.kind, provider: e.provider, model: e.model }, meta: { ...meta(), provider: e.provider, model: e.model } };
+          if (e.type === 'done') done = { data: { kind: e.kind, provider: e.provider, model: e.model, warning: e.warning }, meta: { ...meta(), provider: e.provider, model: e.model } };
         }
       }
       return done ?? fail('PROVIDER_ERROR', 'The response ended before it was complete.');
