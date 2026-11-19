@@ -1,10 +1,15 @@
 import { ChevronDown, ChevronUp, GitBranch, Plus, RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { ExportMenu } from '@/components/ExportMenu';
 import { InfoTip } from '@/components/InfoTip';
+import type { ExportDoc } from '@/domain/exporters';
+import { lineageExportDoc } from '@/domain/lineageExport';
 import { AsyncView, Badge, Button, Card, OriginBadge, PageHeader, Select } from '@/components/ui';
 import { groupEdges, visibleColumnMap, type EdgeGroup } from '@/domain/lineageFlow';
+import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { useAsync } from '@/hooks/useAsync';
+import { useFullscreen } from '@/hooks/useFullscreen';
 import { services } from '@/services';
 import type { CatalogEntry, FlowRequest, LineageFlow } from '@/types';
 import { FlowCanvas } from './FlowCanvas';
@@ -34,6 +39,11 @@ export function LineagePage() {
   const [pick, setPick] = useState<Pick>({ kind: 'none' });
   const [arrangeTick, setArrangeTick] = useState(0);
   const [guideOpen, setGuideOpen] = useState(readGuideOpen);
+
+  const fs = useFullscreen<HTMLElement>();
+  // Re-fit the graph once the container has resized for fullscreen on/off.
+  const [fitTick, setFitTick] = useState(0);
+  useEffect(() => { setFitTick((t) => t + 1); }, [fs.active]);
 
   const catalog = useAsync(() => services.lineage.getCatalog({ internalOnly, includeNotUsed }), [internalOnly, includeNotUsed]);
 
@@ -93,7 +103,7 @@ export function LineagePage() {
     <div>
       <PageHeader
         title="Agent 2 · Data Flow & Lineage"
-        description="See where a table's data comes from, how each column is transformed on the way, and where it goes next. Pick tables on the left; the graph traces them for you."
+        description="See where a table's data comes from, how each column is transformed on the way, and where it goes next. Pick tables first; the graph below traces them for you."
         right={
           <div className="flex items-center gap-2">
             <OriginBadge meta={flow.meta ?? catalog.meta} />
@@ -123,29 +133,47 @@ export function LineagePage() {
 
       <AsyncView state={catalog} isEmpty={(c) => c.length === 0} emptyMessage="No lineage found in the workbook for these options. Try turning off 'Internal TRAQ flow only'.">
         {(entries) => (
-          <div className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)_23rem]">
+          <div className="space-y-4">
+            {/* Step 1: choose tables (full width, compact) */}
             <TablePicker catalog={entries} selected={tables} onChange={setSelection} />
-            <div className="min-w-0 space-y-3">
+
+            {/* Steps 2 and 3: the diagram is the main focus. This whole section goes fullscreen, so options,
+                graph, legend and the details panel all stay available and state is preserved. */}
+            <section
+              ref={fs.ref}
+              aria-label="Data flow diagram"
+              className={fs.active ? 'fixed inset-0 z-50 flex flex-col gap-3 p-3' : 'space-y-3'}
+              style={fs.active ? { background: 'var(--bg)' } : undefined}
+            >
               <Controls
                 upstream={upstream} downstream={downstream} depth={depth} internalOnly={internalOnly} includeNotUsed={includeNotUsed}
                 onUpstream={setUpstream} onDownstream={setDownstream} onDepth={setDepth}
                 onInternal={setInternalOnly} onNotUsed={setIncludeNotUsed} onReset={reset} canDeepen={depth > 0 && tables.length > 0}
+                getExportDoc={() => (flow.data ? lineageExportDoc(flow.data) : null)}
+                canExport={!!flow.data && flow.data.tables.length > 0}
               />
-              <Card className="relative h-[66vh] min-h-[28rem] overflow-hidden">
-                <FlowView
-                  flow={flow.data} visible={visible} groups={groups} status={flow.status} error={flow.error} reload={flow.reload} tables={tables} entries={entries}
-                  collapsed={collapsed} showAll={showAll} pick={pick} arrangeTick={arrangeTick}
-                  onToggle={onToggle} onShowAll={onShowAll} onTable={onTable} onColumn={onColumn} onEdge={onEdge} onPane={onPane}
-                  onCollapseAll={(names) => setCollapsed(new Set(names))} onExpandAll={() => { setCollapsed(new Set()); }}
-                  onArrange={() => setArrangeTick((t) => t + 1)}
-                />
-              </Card>
+              <div className={fs.active ? 'flex min-h-0 flex-1 flex-col gap-3 md:flex-row' : 'flex flex-col gap-3 xl:flex-row'}>
+                <Card className={fs.active ? 'relative min-h-[16rem] min-w-0 flex-1 overflow-hidden' : 'relative h-[82vh] min-h-[36rem] min-w-0 flex-1 overflow-hidden'}>
+                  <FlowView
+                    flow={flow.data} visible={visible} groups={groups} status={flow.status} error={flow.error} reload={flow.reload} tables={tables} entries={entries}
+                    collapsed={collapsed} showAll={showAll} pick={pick} arrangeTick={arrangeTick}
+                    fitTick={fitTick} fullscreen={fs.active} onToggleFullscreen={fs.toggle}
+                    onToggle={onToggle} onShowAll={onShowAll} onTable={onTable} onColumn={onColumn} onEdge={onEdge} onPane={onPane}
+                    onCollapseAll={(names) => setCollapsed(new Set(names))} onExpandAll={() => { setCollapsed(new Set()); }}
+                    onArrange={() => setArrangeTick((t) => t + 1)}
+                  />
+                </Card>
+                <div className={fs.active ? 'min-h-0 w-full shrink-0 md:w-[24rem]' : 'w-full shrink-0 xl:w-[24rem]'}>
+                  <DetailsColumn
+                    flow={flow.data} groups={groups} pick={pick} selected={tables}
+                    className={fs.active ? 'h-full max-h-[40vh] md:max-h-none' : 'h-[82vh] min-h-[36rem]'}
+                    onTable={onTable} onTrace={setSelection} onAdd={(n) => setSelection([...tables, n])}
+                  />
+                </div>
+              </div>
               <Legend />
-            </div>
-            <DetailsColumn
-              flow={flow.data} groups={groups} pick={pick} selected={tables}
-              onTable={onTable} onTrace={setSelection} onAdd={(n) => setSelection([...tables, n])}
-            />
+            </section>
+            {tables.length > 0 && <AiInsightPanel title="AI flow explanation" resetKey={reqKey} run={(o) => services.ai.explainFlow(req, o)} actionLabel="Explain this flow with AI" />}
           </div>
         )}
       </AsyncView>
@@ -166,6 +194,7 @@ function Controls(p: {
   upstream: boolean; downstream: boolean; depth: number; internalOnly: boolean; includeNotUsed: boolean; canDeepen: boolean;
   onUpstream: (v: boolean) => void; onDownstream: (v: boolean) => void; onDepth: (v: number) => void;
   onInternal: (v: boolean) => void; onNotUsed: (v: boolean) => void; onReset: () => void;
+  getExportDoc: () => ExportDoc | null; canExport: boolean;
 }) {
   return (
     <Card className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 text-sm">
@@ -183,7 +212,10 @@ function Controls(p: {
       <Button variant="outline" size="sm" disabled={!p.canDeepen} onClick={() => p.onDepth(p.depth + 1)} title="Follow the lineage one more hop"><Plus size={13} /> One more level</Button>
       <label className="flex items-center gap-1.5" title="Hide CrisMac source tables and show only flow between TRAQ tables"><input type="checkbox" checked={p.internalOnly} onChange={(e) => p.onInternal(e.target.checked)} /> TRAQ tables only</label>
       <label className="flex items-center gap-1.5" title="Include links the workbook marks NOT USED (documented but not loaded)"><input type="checkbox" checked={p.includeNotUsed} onChange={(e) => p.onNotUsed(e.target.checked)} /> Include NOT USED links</label>
-      <Button variant="ghost" size="sm" className="ml-auto" onClick={p.onReset} title="Back to the default table, depth and options"><RotateCcw size={13} /> Reset</Button>
+      <div className="ml-auto flex items-center gap-2">
+        <ExportMenu getDoc={p.getExportDoc} baseName="lineage" disabled={!p.canExport} />
+        <Button variant="ghost" size="sm" onClick={p.onReset} title="Back to the default table, depth and options"><RotateCcw size={13} /> Reset</Button>
+      </div>
     </Card>
   );
 }
@@ -192,6 +224,7 @@ interface FlowViewProps {
   flow: LineageFlow | null; status: 'loading' | 'success' | 'error'; error: string | null; reload: () => void;
   tables: string[]; entries: CatalogEntry[];
   collapsed: Set<string>; showAll: Set<string>; pick: Pick; arrangeTick: number;
+  fitTick: number; fullscreen: boolean; onToggleFullscreen: () => void;
   onToggle: (n: string) => void; onShowAll: (n: string) => void; onTable: (n: string) => void;
   onColumn: (t: string, c: string) => void; onEdge: (id: string) => void; onPane: () => void;
   onCollapseAll: (names: string[]) => void; onExpandAll: () => void; onArrange: () => void;
@@ -200,11 +233,11 @@ interface FlowViewProps {
 function FlowView(p: FlowViewProps & { visible: Map<string, string[]>; groups: EdgeGroup[] }) {
   const { flow, collapsed, showAll, visible, groups } = p;
   if (p.tables.length === 0) {
-    return <CenterMessage title="No table selected" body="Tick a table in the list on the left to see where its data comes from and where it goes." />;
+    return <CenterMessage title="No table selected" body="Tick a table in the list above to see where its data comes from and where it goes." />;
   }
   if (p.status === 'error' && !flow) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-bad">
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center text-sm text-bad">
         <div className="font-medium">The graph could not be built</div>
         <div className="text-muted">{p.error}</div>
         <Button variant="outline" size="sm" onClick={p.reload}>Retry</Button>
@@ -222,6 +255,7 @@ function FlowView(p: FlowViewProps & { visible: Map<string, string[]>; groups: E
         flow={flow} groups={groups} visible={visible} collapsed={collapsed} showAll={showAll}
         focus={focus} activeColumn={p.pick.kind === 'column' ? { table: p.pick.table, column: p.pick.column } : null}
         selectedEdge={p.pick.kind === 'edge' ? p.pick.id : ''} arrangeTick={p.arrangeTick}
+        fitTick={p.fitTick} fullscreen={p.fullscreen} onToggleFullscreen={p.onToggleFullscreen}
         onToggle={p.onToggle} onShowAll={p.onShowAll} onTable={p.onTable} onColumn={p.onColumn} onEdge={p.onEdge} onPane={p.onPane}
         onCollapseAll={() => p.onCollapseAll(flow.tables.map((t) => t.name))} onExpandAll={p.onExpandAll} onArrange={p.onArrange}
       />
@@ -237,7 +271,7 @@ function FlowView(p: FlowViewProps & { visible: Map<string, string[]>; groups: E
 
 function CenterMessage({ title, body, busy }: { title: string; body: string; busy?: boolean }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-1.5 p-6 text-center">
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-6 text-center">
       <GitBranch size={22} className={busy ? 'animate-pulse text-primary' : 'text-muted'} />
       <div className="text-sm font-medium">{title}</div>
       <div className="max-w-sm text-xs text-muted">{body}</div>
@@ -246,19 +280,19 @@ function CenterMessage({ title, body, busy }: { title: string; body: string; bus
 }
 
 function DetailsColumn(p: {
-  flow: LineageFlow | null; groups: EdgeGroup[]; pick: Pick; selected: string[];
+  flow: LineageFlow | null; groups: EdgeGroup[]; pick: Pick; selected: string[]; className: string;
   onTable: (n: string) => void; onTrace: (t: string[]) => void; onAdd: (n: string) => void;
 }) {
   const { groups } = p;
   if (!p.flow || p.flow.tables.length === 0) {
     return (
-      <Card className="min-h-[12rem] p-4 text-sm text-muted">
+      <Card className={`p-4 text-sm text-muted ${p.className}`}>
         <div className="mb-1 font-medium text-fg">3. Inspect</div>
         Details for the table, column or arrow you click will appear here: source and target, MAP TYPE and the transformation text from the workbook.
       </Card>
     );
   }
-  return <FlowDetails flow={p.flow} groups={groups} pick={p.pick} selected={p.selected} onTable={p.onTable} onTrace={p.onTrace} onAdd={p.onAdd} />;
+  return <FlowDetails flow={p.flow} groups={groups} pick={p.pick} selected={p.selected} className={p.className} onTable={p.onTable} onTrace={p.onTrace} onAdd={p.onAdd} />;
 }
 
 function Legend() {

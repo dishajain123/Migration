@@ -24,7 +24,7 @@ export function TablePicker({ catalog, selected, onChange }: {
   const filtered = !!(query || layer || system);
 
   return (
-    <Card className="flex max-h-[72vh] min-h-[22rem] flex-col overflow-hidden">
+    <Card className="flex max-h-[20rem] min-h-[14rem] flex-col overflow-hidden">
       <CardHeader
         title={<span className="flex items-center gap-1.5">1. Pick tables <InfoTip title="Table picker">
           <span>Choose one or more tables to follow. The graph then shows where each table's data comes from (upstream) and where it goes (downstream).</span>
@@ -65,9 +65,9 @@ export function TablePicker({ catalog, selected, onChange }: {
           </div>
         )}
       </div>
-      <ul className="min-h-0 flex-1 overflow-auto" role="listbox" aria-multiselectable="true" aria-label="Tables">
+      <ul className="grid min-h-0 flex-1 content-start overflow-auto sm:grid-cols-2 xl:grid-cols-3" role="listbox" aria-multiselectable="true" aria-label="Tables">
         {shown.length === 0 && (
-          <li className="p-6 text-center text-sm text-muted">
+          <li className="col-span-full p-6 text-center text-sm text-muted">
             {filtered ? 'No table matches these filters.' : 'No tables with lineage.'}
             {filtered && <div><Button variant="outline" size="sm" className="mt-2" onClick={() => { setQuery(''); setLayer(''); setSystem(''); }}>Clear filters</Button></div>}
           </li>

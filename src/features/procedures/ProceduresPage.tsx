@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Select, SimulatedBadge, Tabs } from '@/components/ui';
+import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { noResult, useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
 import { useReviewStore } from '@/stores/reviewStore';
@@ -86,8 +87,9 @@ function ObjectDetail({ obj, analysed, onToggle }: { obj: ProcObject; analysed: 
           <div><div className="mb-1 font-medium">Related objects</div><div className="font-mono text-muted">{obj.related.join(', ') || '—'}</div></div>
         </div>
       </Card>
+      <AiInsightPanel title="AI procedure explanation" resetKey={obj.id} run={(o) => services.ai.explainProcedure(obj.id, o)} />
       <Card>
-        <CardHeader title="Summary" right={<SimulatedBadge label="Simulated (template)" />} />
+        <CardHeader title="Summary" subtitle="Deterministic template (no AI)" right={<SimulatedBadge label="Simulated (template)" />} />
         <AsyncView state={explain}>{(e) => <ul className="space-y-1 p-3 text-sm">{e.summary.map((l) => <li key={l}>• {l}</li>)}</ul>}</AsyncView>
       </Card>
       <Card>

@@ -10,7 +10,8 @@ import type { DdExport, ProcSource } from '@/types';
 
 interface Manifest { procedures: ProcFileInfo[] }
 
-function decode(buf: ArrayBuffer): string {
+/** Text from bytes: UTF-16 (with or without BOM) or UTF-8, as SQL Server Management Studio saves scripts. */
+export function decode(buf: ArrayBuffer): string {
   const b = new Uint8Array(buf);
   if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b.subarray(2));
   if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2));
@@ -40,19 +41,29 @@ function getManifest(): Promise<Manifest> {
   return manifestCache;
 }
 
+let filesCache: Promise<{ info: ProcFileInfo; sql: string }[]> | null = null;
+/** Raw text of the sample procedure files listed in manifest.json. */
+export function getProcSourceFiles(): Promise<{ info: ProcFileInfo; sql: string }[]> {
+  if (!filesCache) {
+    filesCache = (async () => {
+      const m = await getManifest();
+      return Promise.all(m.procedures.map(async (p) => {
+        const sql = await fetchText(url(p.folder, p.file));
+        if (sql === null) throw new Error(`SQL file not found: ${p.folder}/${p.file}`);
+        return { info: p, sql };
+      }));
+    })().catch((e) => { filesCache = null; throw e; });
+  }
+  return filesCache;
+}
+
 let sourcesCache: Promise<ProcSource[]> | null = null;
 /** Parsed procedures in execution order. */
 export function getProcSources(): Promise<ProcSource[]> {
   if (!sourcesCache) {
-    sourcesCache = (async () => {
-      const m = await getManifest();
-      const all = await Promise.all(m.procedures.map(async (p) => {
-        const sql = await fetchText(url(p.folder, p.file));
-        if (sql === null) throw new Error(`SQL file not found: ${p.folder}/${p.file}`);
-        return analyzeProcSql(p, sql);
-      }));
-      return all.sort((a, b) => a.order - b.order);
-    })().catch((e) => { sourcesCache = null; throw e; });
+    sourcesCache = getProcSourceFiles()
+      .then((files) => files.map((f) => analyzeProcSql(f.info, f.sql)).sort((a, b) => a.order - b.order))
+      .catch((e) => { sourcesCache = null; throw e; });
   }
   return sourcesCache;
 }

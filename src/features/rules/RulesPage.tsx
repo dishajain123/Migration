@@ -1,25 +1,42 @@
 import { Check, Undo2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { AiInsightPanel } from '@/components/AiInsightPanel';
+import { InfoTip } from '@/components/InfoTip';
+import { ConversionWorkspace } from './conversion/ConversionWorkspace';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Select, Stat, Tabs } from '@/components/ui';
 import { useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
 import { selectReviewedMappings, useReviewStore } from '@/stores/reviewStore';
 import type { BusinessRule, RuleKind, Severity, ValidationResult } from '@/types';
 
-type Tab = 'rules' | 'validation';
+type Tab = 'convert' | 'rules' | 'validation';
+const TABS: Tab[] = ['convert', 'rules', 'validation'];
 const KINDS: RuleKind[] = ['mandatory', 'constant', 'default', 'transform', 'constraint', 'derivation'];
 const sevTone: Record<Severity, 'ok' | 'warn' | 'bad'> = { pass: 'ok', warn: 'warn', fail: 'bad' };
 
 export function RulesPage() {
-  const [tab, setTab] = useState<Tab>('rules');
+  const [params, setParams] = useSearchParams();
+  const fromUrl = params.get('tab') as Tab | null;
+  const tab: Tab = fromUrl && TABS.includes(fromUrl) ? fromUrl : 'convert';
+  const setTab = (t: Tab) => setParams((p) => { const n = new URLSearchParams(p); n.set('tab', t); return n; }, { replace: true });
   return (
     <div>
       <PageHeader
         title="Agent 5 · Business Rule Generator & Validator"
-        description="Rules are extracted deterministically from the workbook (NOT NULL flags, constants, defaults/fallbacks, derivations, stated constraints, Derived Attribute rules). Validation runs metadata checks over the mappings, including the mappings you approved in Agent 4."
+        description="Migrate CrisMac business rules to TRAQ: upload stored procedures, map their columns through Agent 4, review the generated TRAQ rules and export them in TRAQ's Excel/CSV format. The other tabs list the rules documented in the workbook and run validation checks."
+        right={<InfoTip title="About Agent 5" align="right">
+          <span><b>CrisMac SQL → TRAQ rules:</b> CrisMac keeps business rules in SQL procedures, TRAQ keeps them as derived-attribute rules in Excel/CSV. This tab converts one into the other using the approved mappings.</span>
+          <span><b>Workbook rules:</b> rules extracted from the workbook (NOT NULL flags, constants, defaults, derivations, Derived Attribute rules).</span>
+          <span><b>Validation:</b> metadata checks over the mappings, including the ones you approved in Agent 4.</span>
+        </InfoTip>}
       />
-      <Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'rules', label: 'Business rules' }, { id: 'validation', label: 'Validation' }]} />
-      <div className="mt-3">{tab === 'rules' ? <Rules /> : <Validation />}</div>
+      <Tabs<Tab> value={tab} onChange={setTab} tabs={[
+        { id: 'convert', label: 'CrisMac SQL → TRAQ rules' },
+        { id: 'rules', label: 'Workbook rules' },
+        { id: 'validation', label: 'Validation' },
+      ]} />
+      <div key={tab} className="anim-fade mt-3">{tab === 'convert' ? <ConversionWorkspace /> : tab === 'rules' ? <Rules /> : <Validation />}</div>
     </div>
   );
 }
@@ -78,6 +95,7 @@ function Validation() {
         <span>Includes {reviewed.length} human-reviewed mapping(s) from Agent 4 (check C7).</span>
         <Button size="sm" variant="outline" onClick={state.reload}>Re-run validation</Button>
       </div>
+      <AiInsightPanel title="AI validation review" resetKey={String(reviewed.length)} run={(o) => services.ai.reviewValidation(reviewed, o)} actionLabel="Review results with AI" />
       <AsyncView state={state}>
         {(rep) => {
           const checks = Array.from(new Map(rep.results.map((r) => [r.checkId, r.check])).entries());

@@ -1,6 +1,7 @@
 import { Check, Trash2, Undo2, X } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Progress, Select, SimulatedBadge, Tabs } from '@/components/ui';
 import { noResult, useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
@@ -42,6 +43,7 @@ export function MappingPage() {
             { id: 'suggestions', label: <span className="flex items-center gap-1.5">Suggestions <SimulatedBadge /></span> },
             { id: 'documented', label: 'Documented mappings' }, { id: 'unfed', label: 'Unmapped & ambiguous' }, { id: 'manual', label: 'Manual mapping' },
           ]} />
+          {tab === 'suggestions' && <AiInsightPanel title="AI mapping recommendations" resetKey={table} run={(o) => services.ai.rankMappings(table, o)} actionLabel="Rank candidates with AI" />}
           {tab === 'suggestions' && <Suggestions table={table} />}
           {tab === 'documented' && <Documented table={table} />}
           {tab === 'unfed' && <Unfed table={table} />}

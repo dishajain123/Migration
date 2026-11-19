@@ -1,4 +1,4 @@
-import type { ProcParam, ProcSource, SqlColumnWrite, SqlStep, SqlStepType } from '@/types';
+import type { ProcParam, ProcSource, SqlColumnWrite, SqlJoin, SqlStep, SqlStepType } from '@/types';
 
 /*
  * Structural analysis of T-SQL stored procedures (regex + a small state machine, NOT a full parser and NOT AI).
@@ -99,6 +99,131 @@ function findTopKeyword(code: string, from: number, re: RegExp): number {
 }
 const FROM_RE = /^(?:FROM)\b/i;
 const SET_END_RE = /^(?:FROM|WHERE|OUTPUT|OPTION)\b/i;
+const WHERE_RE = /^WHERE\b/i;
+const WHERE_END_RE = /^(?:GROUP|ORDER|OPTION|HAVING|UNION|OUTPUT)\b/i;
+const JOIN_START_RE = /^(?:INNER|LEFT|RIGHT|FULL|CROSS|JOIN)\b/i;
+const JOIN_HEAD_RE = /^((?:INNER|LEFT|RIGHT|FULL|CROSS)(?:\s+OUTER)?\s+)?JOIN\s+(\(|[#[\]\w.]+)(?:\s+(?:AS\s+)?(?!ON\b|WITH\b|WHERE\b|SELECT\b|INNER\b|LEFT\b|RIGHT\b|FULL\b|CROSS\b|JOIN\b)(\w+))?/i;
+
+function closeParen(code: string, open: number, limit = code.length): number {
+  let depth = 0;
+  for (let i = open; i < limit; i++) {
+    if (code[i] === '(') depth++;
+    else if (code[i] === ')') { depth--; if (depth === 0) return i; }
+  }
+  return limit;
+}
+
+/** JOINs (with ON text) and the WHERE condition of a statement, from its top-level FROM onwards. */
+function fromAndWhere(code: string, text: string, start: number): { joins: SqlJoin[]; where: string } {
+  const f = findTopKeyword(code, start, FROM_RE);
+  const w = findTopKeyword(code, f < code.length ? f : start, WHERE_RE);
+  const joins: SqlJoin[] = [];
+  const nextJoin = (from: number) => {
+    let n = findTopKeyword(code, from, JOIN_START_RE);
+    while (n < w && !JOIN_HEAD_RE.test(code.slice(n, w))) n = findTopKeyword(code, n + 1, JOIN_START_RE);
+    return n;
+  };
+  if (f < code.length) {
+    let pos = nextJoin(f + 4);
+    while (pos < w) {
+      const h = JOIN_HEAD_RE.exec(code.slice(pos, w));
+      if (!h) break;
+      let after = pos + h[0].length;
+      let table: string;
+      let alias = '';
+      if (h[2] === '(') {
+        const close = closeParen(code, after - 1, w);
+        table = '(subquery)';
+        const a = /^\s*(?:AS\s+)?(?!ON\b)(\w+)/i.exec(code.slice(close + 1, w));
+        alias = a ? a[1].toUpperCase() : '';
+        after = close + 1 + (a ? a[0].length : 0);
+      } else {
+        table = normName(h[2])?.name ?? h[2].toUpperCase();
+        alias = (h[3] ?? '').toUpperCase();
+      }
+      const next = nextJoin(after);
+      const end = Math.min(next, w);
+      const onM = /^\s*ON\b/i.exec(code.slice(after, end));
+      joins.push({
+        kind: ((h[1] ?? '').trim().toUpperCase().replace(/\s+OUTER$/, '') || 'INNER'),
+        table, alias, on: onM ? squash(text.slice(after + onM[0].length, end)) : '',
+      });
+      pos = next;
+    }
+  }
+  let where = '';
+  if (w < code.length) where = squash(text.slice(w + 5, findTopKeyword(code, w + 5, WHERE_END_RE)));
+  return { joins, where };
+}
+
+function aliasRecord(code: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [alias, raw] of aliasMap(code)) {
+    const n = normName(raw);
+    if (n) out[alias] = n.name;
+  }
+  return out;
+}
+
+/** MERGE INTO t USING s ON c WHEN MATCHED THEN UPDATE SET ... WHEN NOT MATCHED THEN INSERT (...) VALUES (...). */
+function analyzeMerge(code: string, text: string): { target: string; columns: SqlColumnWrite[]; join: SqlJoin; where: string } | null {
+  const h = /MERGE\s+(?:TOP\s*\([^)]*\)\s*)?(?:INTO\s+)?([#[\]\w.]+)(?:\s+(?:AS\s+)?(?!USING\b)(\w+))?\s+USING\s+/i.exec(code);
+  if (!h) return null;
+  let p = h.index + h[0].length;
+  let source = '(subquery)';
+  if (code[p] === '(') p = closeParen(code, p) + 1;
+  else {
+    const s = /^([#[\]\w.]+)/.exec(code.slice(p));
+    if (s) { source = normName(s[1])?.name ?? s[1].toUpperCase(); p += s[0].length; }
+  }
+  const a = /^\s*(?:AS\s+)?(?!ON\b)(\w+)/i.exec(code.slice(p));
+  const alias = a ? a[1].toUpperCase() : '';
+  if (a) p += a[0].length;
+  // WHEN [NOT] MATCHED clauses at parenthesis depth 0 (CASE WHEN inside SET items is not a clause).
+  const clauseStarts: number[] = [];
+  let depth = 0;
+  for (let i = p; i < code.length; i++) {
+    const c = code[i];
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (depth === 0 && (c === 'W' || c === 'w') && !/\w/.test(code[i - 1] ?? ' ') && /^WHEN\s+(?:NOT\s+)?MATCHED\b/i.test(code.slice(i, i + 40))) clauseStarts.push(i);
+  }
+  const onEnd = clauseStarts[0] ?? code.length;
+  const onM = /^\s*ON\b/i.exec(code.slice(p, onEnd));
+  const join: SqlJoin = { kind: 'USING', table: source, alias, on: onM ? squash(text.slice(p + onM[0].length, onEnd)) : '' };
+  const columns: SqlColumnWrite[] = [];
+  let where = '';
+  clauseStarts.forEach((start, idx) => {
+    const end = clauseStarts[idx + 1] ?? code.length;
+    const cc = code.slice(start, end).replace(/;\s*$/, '');
+    const ct = text.slice(start, start + cc.length);
+    const cond = /^WHEN\s+(?:NOT\s+)?MATCHED(?:\s+BY\s+(?:TARGET|SOURCE))?\s+AND\s+([\s\S]*?)\s+THEN\b/i.exec(cc);
+    const up = /\bTHEN\s+UPDATE\s+SET\b/i.exec(cc);
+    if (up) {
+      if (cond && !where) where = squash(ct.slice(cond.index + cond[0].indexOf(cond[1]), cond.index + cond[0].indexOf(cond[1]) + cond[1].length));
+      const s = up.index + up[0].length;
+      for (const item of splitTop(cc.slice(s), ct.slice(s))) {
+        const m = /^\s*(?:[\w#[\]]+\.)?\[?(\w+)\]?\s*=(?!=)\s*([\s\S]*)$/.exec(item);
+        if (m) columns.push({ name: m[1].toUpperCase(), expression: cleanExpr(m[2]), expressionFull: fullExpr(m[2]) });
+      }
+    }
+    const ins = /\bTHEN\s+INSERT\s*\(/i.exec(cc);
+    if (ins) {
+      const open = ins.index + ins[0].length - 1;
+      const close = closeParen(cc, open);
+      const names = splitTop(cc.slice(open + 1, close), ct.slice(open + 1, close)).map((x) => x.replace(/[[\]\s]/g, '').toUpperCase());
+      const v = /^\s*VALUES\s*\(/i.exec(cc.slice(close + 1));
+      let vals: string[] = [];
+      if (v) {
+        const vo = close + 1 + v[0].length - 1;
+        const vc = closeParen(cc, vo);
+        vals = splitTop(cc.slice(vo + 1, vc), ct.slice(vo + 1, vc));
+      }
+      names.forEach((n, i) => columns.push({ name: n, expression: vals.length === names.length ? cleanExpr(vals[i]) : '', expressionFull: vals.length === names.length ? fullExpr(vals[i]) : undefined }));
+    }
+  });
+  return { target: h[1], columns, join, where };
+}
 
 function aliasMap(code: string): Map<string, string> {
   const m = new Map<string, string>();
@@ -116,13 +241,16 @@ function deriveName(item: string): string {
   return a ? a[1].toUpperCase() : '';
 }
 
-function cleanExpr(item: string): string {
+function fullExpr(item: string): string {
   const s = squash(item);
   const eq = /^\[?\w+\]?\s*=(?!=)\s*([\s\S]+)$/.exec(s);
-  return clip((eq ? eq[1] : s.replace(/\s+AS\s+\[?\w+\]?$/i, '')).trim(), 240);
+  return (eq ? eq[1] : s.replace(/\s+AS\s+\[?\w+\]?$/i, '')).trim();
+}
+function cleanExpr(item: string): string {
+  return clip(fullExpr(item), 240);
 }
 
-interface SegResult { step: Omit<SqlStep, 'id' | 'index' | 'guard' | 'note' | 'lineStart' | 'lineEnd' | 'housekeeping'>; locals: string[] }
+interface SegResult { step: Omit<SqlStep, 'id' | 'index' | 'guard' | 'guards' | 'note' | 'lineStart' | 'lineEnd' | 'housekeeping'>; locals: string[] }
 
 function analyzeSegment(type: SqlStepType, code: string, text: string): SegResult | null {
   const locals: string[] = [];
@@ -132,8 +260,18 @@ function analyzeSegment(type: SqlStepType, code: string, text: string): SegResul
   let target: { name: string; kind: SqlStep['tableKind'] } | null = null;
   let columns: SqlColumnWrite[] = [];
   let callee = '';
+  let clauseStart = 0;
+  let mergeJoin: SqlJoin | null = null;
+  let mergeWhere = '';
 
-  if (type === 'INSERT') {
+  if (type === 'MERGE') {
+    const m = analyzeMerge(code, text);
+    if (!m) return null;
+    target = note(normName(m.target));
+    columns = m.columns;
+    mergeJoin = m.join;
+    mergeWhere = m.where;
+  } else if (type === 'INSERT') {
     const h = /INSERT\s+(?:INTO\s+)?([#[\]\w.]+)\s*(\()?/i.exec(code);
     if (!h) return null;
     target = note(normName(h[1]));
@@ -159,7 +297,8 @@ function analyzeSegment(type: SqlStepType, code: string, text: string): SegResul
       if (items.length) items[0] = items[0].replace(/^\s*(?:DISTINCT|TOP\s*\(?\d+\)?(?:\s+PERCENT)?)\s+/i, '');
     }
     const paired = items.length === names.length;
-    columns = names.map((name, i) => ({ name, expression: paired ? cleanExpr(items[i]) : '' }));
+    columns = names.map((name, i) => ({ name, expression: paired ? cleanExpr(items[i]) : '', expressionFull: paired ? fullExpr(items[i]) : undefined }));
+    clauseStart = after;
   } else if (type === 'UPDATE') {
     const h = /UPDATE\s+(?:TOP\s*\(\s*\d+\s*\)\s*)?([#[\]\w.]+)\s+SET\b/i.exec(code);
     if (!h) return null;
@@ -168,12 +307,14 @@ function analyzeSegment(type: SqlStepType, code: string, text: string): SegResul
     const end = findTopKeyword(code, from, SET_END_RE);
     for (const item of splitTop(code.slice(from, end), text.slice(from, end))) {
       const a = /^\s*(?:[\w#[\]]+\.)?\[?(\w+)\]?\s*=(?!=)\s*([\s\S]*)$/.exec(item);
-      if (a) columns.push({ name: a[1].toUpperCase(), expression: cleanExpr(a[2]) });
+      if (a) columns.push({ name: a[1].toUpperCase(), expression: cleanExpr(a[2]), expressionFull: fullExpr(a[2]) });
     }
+    clauseStart = end;
   } else if (type === 'DELETE') {
     const h = /DELETE\s+(?:TOP\s*\(\s*\d+\s*\)\s*)?(?:FROM\s+)?([#[\]\w.]+)/i.exec(code);
     if (!h) return null;
     target = resolve(h[1]);
+    clauseStart = h.index + h[0].length;
   } else if (type === 'TRUNCATE') {
     const h = /TRUNCATE\s+TABLE\s+([#[\]\w.]+)/i.exec(code);
     if (!h) return null;
@@ -186,8 +327,9 @@ function analyzeSegment(type: SqlStepType, code: string, text: string): SegResul
     const bodyEnd = bodyStart + h[1].length;
     columns = splitTop(code.slice(bodyStart, bodyEnd), text.slice(bodyStart, bodyEnd))
       .filter((s) => s !== '*')
-      .map((s) => ({ name: deriveName(s), expression: cleanExpr(s) }))
+      .map((s) => ({ name: deriveName(s), expression: cleanExpr(s), expressionFull: fullExpr(s) }))
       .filter((c) => c.name);
+    clauseStart = bodyEnd;
   } else {
     const h = /EXEC(?:UTE)?\s+(?:@\w+\s*=\s*)?([#[\]\w.]+)/i.exec(code);
     if (!h) return null;
@@ -203,13 +345,27 @@ function analyzeSegment(type: SqlStepType, code: string, text: string): SegResul
   if ((type === 'UPDATE' || type === 'DELETE') && target && readsMeta.filter((r) => r.name === target?.name).length === 1) reads = reads.filter((r) => r !== target?.name);
 
   const functions = Array.from(new Set(Array.from(code.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g), (m) => m[1].toUpperCase()).filter((f) => KNOWN_FUNCTIONS.has(f))));
+  let joins: SqlJoin[] = [];
+  let where = '';
+  if (type === 'MERGE') {
+    if (mergeJoin) {
+      joins = [mergeJoin];
+      if (mergeJoin.table !== '(subquery)' && !reads.includes(mergeJoin.table)) reads = [...reads, mergeJoin.table];
+    }
+    where = mergeWhere;
+  } else if (type !== 'EXEC' && type !== 'TRUNCATE') {
+    ({ joins, where } = fromAndWhere(code, text, clauseStart));
+  }
   return {
-    step: { type, table: target?.name ?? '', tableKind: target?.kind ?? 'table', columns, reads, callee, sql: clip(text.trim(), 2500), functions },
+    step: {
+      type, table: target?.name ?? '', tableKind: target?.kind ?? 'table', columns, reads, callee, sql: clip(text.trim(), 2500), functions,
+      where, joins, aliases: aliasRecord(code),
+    },
     locals,
   };
 }
 
-function scanCondition(code: string, text: string, from: number): { text: string; end: number } {
+function scanCondition(code: string, text: string, from: number): { text: string; full: string; end: number } {
   let depth = 0;
   const limit = Math.min(code.length, from + 700);
   let j = from;
@@ -220,21 +376,23 @@ function scanCondition(code: string, text: string, from: number): { text: string
     else if (depth <= 0 && /[A-Za-z]/.test(c) && /[\s)]/.test(code[j - 1] ?? ' ')
       && /^(?:BEGIN|INSERT|UPDATE|DELETE|TRUNCATE|EXEC|EXECUTE|SELECT|SET|RAISERROR|PRINT|RETURN|WITH|DROP|DECLARE|IF|WHILE|GOTO|COMMIT|ROLLBACK|CREATE|ALTER)\b/i.test(code.slice(j, j + 10))) break;
   }
-  return { text: clip(squash(text.slice(from, j)), 170), end: j };
+  return { text: clip(squash(text.slice(from, j)), 170), full: squash(text.slice(from, j)), end: j };
 }
 
-const EVENT = /\b(?:BEGIN\s+TRY|BEGIN\s+CATCH|END\s+TRY|END\s+CATCH|BEGIN\s+TRAN(?:SACTION)?|BEGIN|END|CASE|IF|ELSE|WHILE|INSERT|UPDATE|DELETE|TRUNCATE\s+TABLE|EXEC(?:UTE)?|SELECT|WITH|DECLARE|DROP\s+(?:TABLE|INDEX)|CREATE\s+(?:TABLE|INDEX|UNIQUE|CLUSTERED|NONCLUSTERED)|ALTER|PRINT|RAISERROR|RETURN|COMMIT|ROLLBACK|SET\s+(?:NOCOUNT|ANSI_NULLS|QUOTED_IDENTIFIER|XACT_ABORT|@\w+)|GO)\b/gi;
+const EVENT = /\b(?:BEGIN\s+TRY|BEGIN\s+CATCH|END\s+TRY|END\s+CATCH|BEGIN\s+TRAN(?:SACTION)?|BEGIN|END|CASE|IF|ELSE|WHILE|INSERT|UPDATE|DELETE|MERGE|TRUNCATE\s+TABLE|EXEC(?:UTE)?|SELECT|WITH|DECLARE|DROP\s+(?:TABLE|INDEX)|CREATE\s+(?:TABLE|INDEX|UNIQUE|CLUSTERED|NONCLUSTERED)|ALTER|PRINT|RAISERROR|RETURN|COMMIT|ROLLBACK|SET\s+(?:NOCOUNT|ANSI_NULLS|QUOTED_IDENTIFIER|XACT_ABORT|@\w+)|GO)\b/gi;
 
-interface RawStep { type: SqlStepType; start: number; end: number; guard: string; inCatch: boolean }
+/** A guard as display text (d, clipped) and as SQL boolean text (f, unclipped). */
+interface Guard { d: string; f: string }
+interface RawStep { type: SqlStepType; start: number; end: number; guard: string; guards: string[]; inCatch: boolean }
 
 function splitStatements(code: string, text: string): RawStep[] {
   const steps: RawStep[] = [];
-  const stack: { guard: string | null; kind: 'block' | 'try' | 'catch' }[] = [];
+  const stack: { guard: Guard | null; kind: 'block' | 'try' | 'catch' }[] = [];
   let open: Omit<RawStep, 'end'> | null = null;
   let caseDepth = 0;
-  let pending: string | null = null;
+  let pending: Guard | null = null;
   let elsePending = false;
-  let lastGuard = '';
+  let lastGuard: Guard | null = null;
   let cte: number | null = null;
   let skipUntil = 0;
   const close = (at: number) => { if (open) { steps.push({ ...open, end: at }); open = null; } };
@@ -245,7 +403,7 @@ function splitStatements(code: string, text: string): RawStep[] {
     if (pos < skipUntil) continue;
     const tok = m[0].toUpperCase().replace(/\s+/g, ' ');
     const before = code.slice(Math.max(0, pos - 10), pos);
-    const isDml = ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE TABLE', 'EXEC', 'EXECUTE', 'SELECT'].includes(tok);
+    const isDml = ['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'TRUNCATE TABLE', 'EXEC', 'EXECUTE', 'SELECT'].includes(tok);
     if (tok === 'CASE') { caseDepth++; continue; }
     if (tok === 'END' && caseDepth > 0) { caseDepth--; continue; }
     if (tok === 'ELSE' && caseDepth > 0) continue;
@@ -262,12 +420,23 @@ function splitStatements(code: string, text: string): RawStep[] {
     if (tok === 'BEGIN TRY') { close(pos); stack.push({ guard: null, kind: 'try' }); continue; }
     if (tok === 'BEGIN CATCH') { close(pos); stack.push({ guard: null, kind: 'catch' }); continue; }
     if (tok === 'BEGIN') { close(pos); stack.push({ guard: pending, kind: 'block' }); pending = null; continue; }
-    if (tok === 'ELSE') { close(pos); elsePending = true; pending = `ELSE${lastGuard ? ` (of: ${lastGuard})` : ''}`; continue; }
+    if (tok === 'ELSE') {
+      close(pos);
+      elsePending = true;
+      const lg: Guard | null = lastGuard;
+      pending = lg ? { d: `ELSE (of: ${lg.d})`, f: `NOT (${lg.f})` } : { d: 'ELSE', f: '' };
+      continue;
+    }
     if (tok === 'IF' || tok === 'WHILE') {
       if (/(?:TABLE|INDEX)\s*$/i.test(before)) continue;
       close(pos);
       const c = scanCondition(code, text, pos + tok.length);
-      pending = `${elsePending ? 'ELSE ' : ''}${tok} ${c.text}`;
+      const own = tok === 'WHILE' ? `__WHILE__ (${c.full})` : `(${c.full})`;
+      const prior: Guard | null = elsePending ? pending : null;
+      pending = {
+        d: `${elsePending ? 'ELSE ' : ''}${tok} ${c.text}`,
+        f: prior?.f ? `${prior.f} AND ${own}` : own,
+      };
       elsePending = false;
       skipUntil = c.end;
       continue;
@@ -285,11 +454,20 @@ function splitStatements(code: string, text: string): RawStep[] {
       if (tok === 'UPDATE' && /^UPDATE\s+STATISTICS/i.test(code.slice(pos, pos + 25))) continue;
       if (tok === 'INSERT' && !/^INSERT\s+(?:INTO\s+)?[#[\w]/i.test(code.slice(pos, pos + 40))) continue;
       close(pos);
+      // MERGE is also a join hint (INNER MERGE JOIN, OPTION (MERGE JOIN)); only a MERGE [INTO] target starts a statement.
+      if (tok === 'MERGE' && (/^MERGE\s+JOIN\b/i.test(code.slice(pos, pos + 20)) || /(?:INNER|LEFT|RIGHT|FULL|OUTER|,|\()\s*$/i.test(before)
+        || !/^MERGE\s+(?:TOP\s*\([^)]*\)\s*)?(?:INTO\s+)?[#[\w]/i.test(code.slice(pos, pos + 60)))) continue;
+      close(pos);
       const type: SqlStepType = tok === 'TRUNCATE TABLE' ? 'TRUNCATE' : tok === 'SELECT' ? 'SELECT_INTO' : tok === 'EXECUTE' ? 'EXEC' : (tok as SqlStepType);
-      const parts = stack.map((b) => b.guard).filter((g): g is string => !!g);
+      const parts = stack.map((b) => b.guard).filter((g): g is Guard => !!g);
       if (pending) { parts.push(pending); consumePending(); }
-      open = { type, start: cte ?? pos, guard: parts.join(' AND '), inCatch: stack.some((b) => b.kind === 'catch') };
+      open = {
+        type, start: cte ?? pos, guard: parts.map((g) => g.d).join(' AND '), guards: parts.map((g) => g.f).filter(Boolean),
+        inCatch: stack.some((b) => b.kind === 'catch'),
+      };
       cte = null;
+      // A MERGE embeds WHEN ... THEN UPDATE/INSERT; it must end with ';', so skip its inner keywords.
+      if (type === 'MERGE') { const semi = code.indexOf(';', pos); skipUntil = semi < 0 ? code.length : semi; }
       continue;
     }
     // any other statement keyword ends the current statement and consumes a single-statement IF
@@ -396,7 +574,7 @@ export function analyzeProcSql(info: ProcFileInfo, sql: string): ProcSource {
     const lastChar = raw.start + Math.max(0, code.slice(raw.start, raw.end).trimEnd().length - 1);
     const index = steps.length + 1;
     steps.push({
-      ...seg.step, id: `${info.name}:${index}`, index, guard: raw.guard, note: noteAbove(lines, lineStart), lineStart,
+      ...seg.step, id: `${info.name}:${index}`, index, guard: raw.guard, guards: raw.guards, note: noteAbove(lines, lineStart), lineStart,
       lineEnd: lineOf(nl, lastChar), housekeeping: raw.inCatch || HOUSEKEEPING.has(seg.step.table),
     });
   }

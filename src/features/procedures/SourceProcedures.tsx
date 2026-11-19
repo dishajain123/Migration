@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { AsyncView, Badge, Card, CardHeader, DataTable, Input, OriginBadge, Select, Stat, Tabs } from '@/components/ui';
 import { useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
@@ -29,6 +30,10 @@ export function SourceProcedures() {
                   <Stat label="Statements analysed" value={stmts.toLocaleString()} hint="Excluding status bookkeeping" />
                   <Stat label="Traceable to TRAQ" value={`${traceable}/${list.length}`} hint="A written column or FPM_DA_RULES row matches" />
                   <Stat label="FPM_DA_RULES links" value={tr.reduce((n, t) => n + t.daRules.length, 0)} hint="Workbook rows relating to these procedures" />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primarybg px-4 py-2.5 text-sm">
+                  <span>Ready to migrate this logic? Agent 5 converts these procedures into TRAQ rules using the Agent 4 mappings, with review and Excel/CSV export.</span>
+                  <Link to="/rules?tab=convert" className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-sm font-medium text-primaryfg hover:opacity-90">Convert to TRAQ rules</Link>
                 </div>
                 <div className="grid gap-4 xl:grid-cols-[26rem_1fr]">
                   <Card>
@@ -65,6 +70,7 @@ function Detail({ proc, trace }: { proc: ProcSource; trace: ProcTrace | undefine
           ]} />
         </div>
       </Card>
+      {sub === 'overview' && <AiInsightPanel title="AI procedure explanation" resetKey={proc.name} run={(o) => services.ai.explainSourceProcedure(proc.name, o)} />}
       {sub === 'overview' && <Overview proc={proc} trace={trace} />}
       {sub === 'steps' && <Steps proc={proc} />}
       {sub === 'traq' && <Traq proc={proc} trace={trace} />}
@@ -124,7 +130,7 @@ function Overview({ proc, trace }: { proc: ProcSource; trace: ProcTrace | undefi
   );
 }
 
-const TYPES: SqlStepType[] = ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'SELECT_INTO', 'EXEC'];
+const TYPES: SqlStepType[] = ['INSERT', 'UPDATE', 'MERGE', 'DELETE', 'TRUNCATE', 'SELECT_INTO', 'EXEC'];
 
 function Steps({ proc }: { proc: ProcSource }) {
   const [type, setType] = useState<SqlStepType | ''>('');

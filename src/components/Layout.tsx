@@ -1,6 +1,10 @@
-import { Boxes, ChevronsLeft, ChevronsRight, FileCode2, GitBranch, LayoutDashboard, Menu, Moon, Network, ShieldCheck, Sun, Table2, X } from 'lucide-react';
+import { Boxes, ChevronsLeft, ChevronsRight, FileCode2, GitBranch, LayoutDashboard, LogOut, Menu, Moon, Network, ShieldCheck, Sparkles, Sun, Table2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useAiStore } from '@/stores/aiStore';
+import { useAuthStore } from '@/stores/authStore';
+import { AiStatusBanner } from './AiStatusBanner';
+import { RateLimitDialog } from './RateLimitDialog';
 import { usePointerDrag } from '@/hooks/usePointerDrag';
 import { cn } from '@/lib/cn';
 import { SIDEBAR, useLayoutStore } from '@/stores/layoutStore';
@@ -17,11 +21,16 @@ const NAV = [
   { to: '/procedures', label: '3 · Procedure Analyzer', icon: FileCode2 },
   { to: '/mapping', label: '4 · Mapping Engine', icon: Network },
   { to: '/rules', label: '5 · Rules & Validation', icon: ShieldCheck },
+  { to: '/ai-settings', label: 'AI Settings', icon: Sparkles },
 ];
 
 export function Layout() {
   const { theme, toggle } = useThemeStore();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const session = useAuthStore((s) => s.session);
+  const signOut = useAuthStore((s) => s.signOut);
+  const logout = async () => { await signOut(); useAiStore.getState().reset(); navigate('/login', { replace: true }); };
   const [open, setOpen] = useState(false); // mobile drawer
   const { sidebarCollapsed: collapsed, sidebarWidth, toggleSidebar, setSidebarCollapsed, setSidebarWidth } = useLayoutStore();
   const asideRef = useRef<HTMLElement>(null);
@@ -127,15 +136,21 @@ export function Layout() {
             <Badge tone="info">Scope: up to FCT_PRODUCT_MASTER</Badge>
             <span className="hidden truncate lg:inline">Source of truth: CrisMac_to_TRAQ_Combined.csv</span>
           </div>
-          <Button variant="outline" size="sm" onClick={toggle} aria-label="Toggle theme">
-            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />} {theme === 'dark' ? 'Light' : 'Dark'}
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {session && <span className="hidden max-w-[10rem] truncate text-xs text-muted sm:inline" title={`Signed in (demo) as ${session.identifier}`}>{session.name}</span>}
+            <Button variant="outline" size="sm" onClick={toggle} aria-label="Toggle theme">
+              {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />} {theme === 'dark' ? 'Light' : 'Dark'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void logout()} aria-label="Log out"><LogOut size={14} /> <span className="hidden sm:inline">Log out</span></Button>
+          </div>
         </header>
+        <AiStatusBanner />
         <main className="flex-1 overflow-auto p-4 md:p-6">
           <ErrorBoundary resetKey={pathname}><Outlet /></ErrorBoundary>
         </main>
       </div>
       <ChatWidget />
+      <RateLimitDialog />
     </div>
   );
 }

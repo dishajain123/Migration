@@ -34,4 +34,6 @@ export const KNOWN_GAPS: string[] = [
   'The workbook states no mapping confidence values; confidence shown here is a labelled heuristic.',
   'DI_WORKFLOWS sheet has no body rows (treated as out of scope).',
   'Datatype notation mixes SQL Server (CrisMac) and Oracle (TRAQ) types.',
+  'The TRAQ rule import format is taken from the dd_export.csv samples (data-dictionary derivation export) and the FPM_DA_RULES sheet; TRAQ\'s own required-field rules are not documented, so "mandatory" means "filled in every sample row".',
+  'The existing dd_export drafts still reference CrisMac names (e.g. "AccountCal"."DPD_Overdue") and use DATEDIFF(earlier, later); the live FPM_DA_RULES use TRAQ names and DATEDIFF(later, earlier, "d"). The Agent 5 conversion follows the live rules and flags the difference.',
 ];

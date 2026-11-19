@@ -16,6 +16,8 @@ export interface ApiMeta {
 export interface ApiError { code: string; message: string }
 export interface ApiResult<T> { data: T | null; meta: ApiMeta; error?: ApiError }
 
+import type { ChatSource } from './ai';
+
 // ---------- Workbook model (parsed from CSV) ----------
 export interface ColumnDef {
   id: string;
@@ -302,8 +304,23 @@ export interface SqlAnalysis {
 }
 
 // ---------- Agent 3: source procedure SQL (sample files outside the workbook) ----------
-export type SqlStepType = 'INSERT' | 'UPDATE' | 'DELETE' | 'TRUNCATE' | 'SELECT_INTO' | 'EXEC';
-export interface SqlColumnWrite { name: string; expression: string }
+export type SqlStepType = 'INSERT' | 'UPDATE' | 'DELETE' | 'TRUNCATE' | 'SELECT_INTO' | 'EXEC' | 'MERGE';
+export interface SqlColumnWrite {
+  name: string;
+  /** Display copy, whitespace-collapsed and clipped. */
+  expression: string;
+  /** Unclipped expression (comments removed), used for rule conversion. */
+  expressionFull?: string;
+}
+export interface SqlJoin {
+  /** INNER, LEFT, RIGHT, FULL, CROSS, or USING for a MERGE source. */
+  kind: string;
+  /** Logical table name, or "(subquery)". */
+  table: string;
+  alias: string;
+  /** ON condition, verbatim (comments removed). */
+  on: string;
+}
 export interface SqlStep {
   id: string;
   index: number;
@@ -316,6 +333,16 @@ export interface SqlStep {
   callee: string;
   /** Enclosing IF/ELSE/WHILE conditions, verbatim and whitespace-collapsed. */
   guard: string;
+  /**
+   * The same enclosing conditions as SQL boolean text, one per level, unclipped: `(c)` for IF c, `NOT ((c))` for its
+   * ELSE, `NOT ((a)) AND (b)` for ELSE IF b, `__WHILE__ (c)` for loops.
+   */
+  guards?: string[];
+  /** Top-level WHERE condition, verbatim. */
+  where?: string;
+  joins?: SqlJoin[];
+  /** Alias (upper-case) to logical table name, for resolving `A.Column`. */
+  aliases?: Record<string, string>;
   /** Comment lines directly above the statement. */
   note: string;
   lineStart: number;
@@ -454,6 +481,144 @@ export interface ValidationReport {
 }
 export interface ValidationRequest { reviewed: ReviewedMapping[] }
 
+// ---------- Agent 5: CrisMac SQL -> TRAQ rule migration (Phase 10) ----------
+/** How a CrisMac column was matched to TRAQ. Tiers in priority order: Agent 4 manual, Agent 4 approved, workbook, name match. */
+export type MappingBasis = 'agent4-manual' | 'agent4-approved' | 'workbook' | 'name-match';
+export type MappingStatus = 'approved' | 'documented' | 'name-match' | 'ambiguous' | 'missing';
+export interface MappingCandidate {
+  table: string;
+  column: string;
+  dataType: string;
+  basis: MappingBasis;
+  mapType?: string;
+  sheet?: string;
+  rowNo?: number;
+}
+export interface ColumnResolution {
+  /** Logical CrisMac table (schema and # removed, upper-case) and column (upper-case). */
+  crismacTable: string;
+  crismacColumn: string;
+  status: MappingStatus;
+  chosen: MappingCandidate | null;
+  candidates: MappingCandidate[];
+  note: string;
+}
+export interface ParamResolution {
+  name: string;
+  /** mapped = replaced by a configured TRAQ expression; folded = replaced by a configured value; unresolved = left as a placeholder. */
+  status: 'mapped' | 'folded' | 'unresolved';
+  value: string;
+  note: string;
+}
+export type ConversionStatus = 'converted' | 'needs-review' | 'failed';
+export interface ConversionIssue { severity: 'error' | 'warning' | 'info'; code: string; message: string }
+export interface SourceStatementRef {
+  stepId: string;
+  stepIndex: number;
+  type: SqlStepType;
+  lineStart: number;
+  lineEnd: number;
+  /** CrisMac expression assigned to the column, verbatim. */
+  expression: string;
+  where: string;
+  guards: string[];
+  joins: SqlJoin[];
+}
+/** Template-neutral TRAQ rule content. Templates decide column names and formats. */
+export interface TraqRuleFields {
+  entity: string;
+  column: string;
+  columnType: string;
+  derivationOption: string;
+  expression: string;
+  explanation: string;
+  /** ISO yyyy-mm-dd; formatted per template on export. */
+  effectiveStartDate: string;
+  status: string;
+  dataType: string;
+  /** TRAQ columns the expression reads. */
+  reads: string[];
+  /** Provenance in the workbook's style, e.g. "DPD_Calculation 62-82". */
+  crismac: string;
+}
+export interface ConvertedRule {
+  /** `${procedure}::${crismacTable}.${crismacColumn}` - stable across re-runs of the same file. */
+  id: string;
+  procedure: string;
+  procedureFile: string;
+  stage: string;
+  crismacTable: string;
+  crismacColumn: string;
+  statements: SourceStatementRef[];
+  /** The rule in CrisMac terms after composing the statements in order (SQL-style text). */
+  crismacLogic: string;
+  target: ColumnResolution;
+  references: ColumnResolution[];
+  params: ParamResolution[];
+  traq: TraqRuleFields;
+  status: ConversionStatus;
+  issues: ConversionIssue[];
+  /** Heuristic score, not a model output. */
+  confidence: { value: number; source: 'mock'; basis: string[] };
+  /** Other procedures that write columns this rule reads. */
+  dependencies: string[];
+  origin: 'derived';
+}
+export interface ProcDependency { from: string; to: string; via: string; kind: 'data' | 'call' }
+export interface ConversionSettings {
+  /** ISO date used as Effective Start Date / IN FORCE FROM unless a rule overrides it. Empty = not set (export blocked). */
+  effectiveStartDate: string;
+  /** Known run-time values, e.g. { '@TIMEKEY': '26400' }: comparisons against them are folded. */
+  paramValues: Record<string, string>;
+  /** CrisMac parameter -> TRAQ expression; `{ENTITY}` is replaced by the rule's TRAQ table. */
+  paramMappings: Record<string, string>;
+}
+export interface ConversionRequest { procedures: ProcSource[]; reviewed: ReviewedMapping[]; settings: ConversionSettings }
+export interface ConversionStats { total: number; converted: number; needsReview: number; failed: number; withTarget: number; procedures: number }
+export interface ConversionResult {
+  rules: ConvertedRule[];
+  dependencies: ProcDependency[];
+  stats: ConversionStats;
+  generatedAt: string;
+  basis: string;
+}
+export interface TemplateColumn {
+  header: string;
+  /** Which TraqRuleFields value fills it, or a template-only value. */
+  field: keyof TraqRuleFields | 'run' | 'version';
+  mandatory: boolean;
+  allowed?: string[];
+  hint: string;
+}
+export interface RuleTemplate {
+  id: 'dd-export' | 'fpm-da-rules';
+  name: string;
+  /** Where the structure was read from. */
+  provenance: string;
+  provisional: boolean;
+  dateFormat: 'dd-mm-yyyy' | 'dd-Mon-yyyy';
+  columns: TemplateColumn[];
+  mandatoryBasis: string;
+}
+export interface UploadedSql { fileName: string; size: number; content: string }
+export interface SqlFileAnalysis {
+  fileName: string;
+  size: number;
+  procedure: ProcSource | null;
+  warnings: string[];
+  error?: string;
+  /** Original SQL text, for preview. */
+  content?: string;
+}
+export type RuleDecision = 'approved' | 'rejected';
+export interface RuleEdit {
+  traq?: Partial<TraqRuleFields>;
+  decision?: RuleDecision;
+  comment?: string;
+  editedAt: string;
+}
+export interface ExportCheck { ruleId: string; field: string; severity: 'error' | 'warning'; message: string }
+
 // ---------- Guidance chatbot (Phase 7) ----------
 export type KnowledgeKind =
   | 'table' | 'column' | 'lineage' | 'mapping' | 'procedure' | 'rule' | 'relationship'
@@ -513,6 +678,12 @@ export interface ChatMessage {
   answer?: ChatAnswer;
   meta?: ApiMeta;
   isError?: boolean;
+  /** AI answer details (set by the streaming assistant). */
+  ai?: { sources: ChatSource[]; kind: AnswerKind; provider?: string; model?: string; retrieval?: 'hybrid' | 'keyword'; note?: string };
+  /** True while tokens are still arriving. */
+  streaming?: boolean;
+  /** Gateway error code for failed answers, e.g. RATE_LIMITED. */
+  errorCode?: string;
 }
 
 // ---------- Dashboard ----------

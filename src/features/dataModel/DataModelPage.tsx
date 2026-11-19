@@ -1,6 +1,7 @@
 import { Download } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Select, Tabs, type Column } from '@/components/ui';
 import { noResult, useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
@@ -73,6 +74,8 @@ function TableDetailPanel({ name }: { name: string }) {
   return (
     <AsyncView state={state}>
       {(d) => (
+        <div className="space-y-3">
+        <AiInsightPanel title="AI table briefing" resetKey={name} run={(o) => services.ai.briefTable(name, o)} />
         <Card>
           <CardHeader
             title={<span className="font-mono">{d.table.name}</span>}
@@ -102,6 +105,7 @@ function TableDetailPanel({ name }: { name: string }) {
             ] as Column<ColumnDetail>[])}
           />
         </Card>
+        </div>
       )}
     </AsyncView>
   );

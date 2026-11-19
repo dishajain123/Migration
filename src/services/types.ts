@@ -1,8 +1,9 @@
 import type {
-  ApiResult, BusinessRule, CatalogEntry, FlowRequest, LineageFlow, ChatAnswer, ChatRequest, DdExport, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
+  ApiResult, BusinessRule, CatalogEntry, ConversionRequest, ConversionResult, FlowRequest, LineageFlow, RuleTemplate, SqlFileAnalysis, UploadedSql, ChatAnswer, ChatRequest, DdExport, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
   MappingRow, ProcObject, Relationship, ReviewDecision, ScopeInfo, SqlAnalysis, Suggestion, SystemKind, TableComparison, TableDetail,
-  TableSummary, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel,
+  TableSummary, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel, ReviewedMapping,
 } from '@/types';
+import type { AiInsight, ChatStreamEvent, ModelChoice, ProviderId } from '@/types/ai';
 
 export interface DataModelService {
   getScope(): Promise<ApiResult<ScopeInfo>>;
@@ -53,6 +54,18 @@ export interface RuleService {
   submitReview(id: string, decision: ReviewDecision, comment: string): Promise<ApiResult<{ id: string; decision: ReviewDecision }>>;
 }
 
+/** Agent 5 rule migration: CrisMac SQL in, TRAQ rule rows out. Mock today; FastAPI (and later an LLM-assisted extractor) behind the same contract. */
+export interface RuleConversionService {
+  /** Parse uploaded SQL files (Agent 3 parser): procedures, statements, joins, conditions, warnings. */
+  analyzeFiles(files: UploadedSql[]): Promise<ApiResult<SqlFileAnalysis[]>>;
+  /** The 14 sample procedures shipped beside the workbook, analysed the same way. */
+  loadSamples(): Promise<ApiResult<SqlFileAnalysis[]>>;
+  /** TRAQ rule layouts found in the project (dd_export, FPM_DA_RULES). */
+  listTemplates(): Promise<ApiResult<RuleTemplate[]>>;
+  /** Extract rules, resolve CrisMac columns through Agent 4 mappings, translate to TRAQ syntax. */
+  convert(req: ConversionRequest): Promise<ApiResult<ConversionResult>>;
+}
+
 export interface DashboardService {
   getSummary(): Promise<ApiResult<DashboardSummary>>;
 }
@@ -63,12 +76,38 @@ export interface ChatService {
   getSuggestedQuestions(route?: string): Promise<ApiResult<string[]>>;
 }
 
+/**
+ * AI features for Agents 1-5, run through the AI gateway with the user's active provider/model. Always real HTTP to
+ * the gateway (keys live server-side); the workbook context it sends comes from the other services.
+ * Failures carry gateway codes: NOT_CONFIGURED, INVALID_KEY, RATE_LIMITED, INCOMPATIBLE, BAD_OUTPUT, ...
+ */
+export interface AgentAiService {
+  /** Every method takes an optional one-off provider/model, used when the user retries after a rate limit. */
+  briefTable(name: string, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
+  explainFlow(req: FlowRequest, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
+  explainProcedure(objectId: string, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
+  explainSourceProcedure(name: string, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
+  rankMappings(table: string, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
+  reviewValidation(reviewed: ReviewedMapping[], o?: ModelChoice): Promise<ApiResult<AiInsight>>;
+}
+
+/** The AI chatbot (RAG + streaming, via the AI gateway). Replaces the template-based ChatService in the UI. */
+export interface AssistantService {
+  askStream(
+    req: ChatRequest, onEvent: (e: ChatStreamEvent) => void, opts?: { override?: ModelChoice; signal?: AbortSignal },
+  ): Promise<ApiResult<{ kind: 'grounded' | 'not-found' | 'smalltalk'; provider?: ProviderId; model?: string }>>;
+  getSuggestedQuestions(route?: string): Promise<ApiResult<string[]>>;
+}
+
 export interface Services {
+  ai: AgentAiService;
+  assistant: AssistantService;
   chat: ChatService;
   dataModel: DataModelService;
   lineage: LineageService;
   procedures: ProcedureService;
   mapping: MappingService;
   rules: RuleService;
+  ruleConversion: RuleConversionService;
   dashboard: DashboardService;
 }

@@ -25,7 +25,7 @@ const ep = config.endpoints;
 const get = <T>(p: string, q?: Record<string, unknown>) => request<T>('GET', p, q);
 const post = <T>(p: string, b: unknown) => request<T>('POST', p, undefined, b);
 
-export function createHttpServices(): Services {
+export function createHttpServices(): Omit<Services, 'ai' | 'assistant'> {
   return {
     chat: {
       ask: (req) => post(ep.chatAsk, req),
@@ -69,6 +69,12 @@ export function createHttpServices(): Services {
       listRules: () => get(ep.rules),
       validate: (req) => post(ep.rulesValidate, req),
       submitReview: (id, decision, comment) => post(ep.rulesReview, { id, decision, comment }),
+    },
+    ruleConversion: {
+      analyzeFiles: (files) => post(ep.conversionAnalyze, { files }),
+      loadSamples: () => get(ep.conversionSamples),
+      listTemplates: () => get(ep.conversionTemplates),
+      convert: (req) => post(ep.conversionConvert, req),
     },
     dashboard: { getSummary: () => get(ep.dashboard) },
   };

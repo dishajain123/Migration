@@ -1,4 +1,4 @@
-import { LayoutGrid, Minimize2, Maximize2 } from 'lucide-react';
+import { Expand, LayoutGrid, Maximize2, Minimize2, Shrink } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactFlow, {
   Background, Controls, MarkerType, MiniMap, Panel, ReactFlowProvider, useEdgesState, useNodesState, useReactFlow,
@@ -24,6 +24,10 @@ export interface CanvasProps {
   activeColumn: { table: string; column: string } | null;
   selectedEdge: string;
   arrangeTick: number;
+  /** Bumped when the container size changes (fullscreen on/off) so the graph is re-fitted without losing positions. */
+  fitTick: number;
+  fullscreen: boolean;
+  onToggleFullscreen: () => void;
   onToggle: (name: string) => void;
   onShowAll: (name: string) => void;
   onTable: (name: string) => void;
@@ -120,14 +124,14 @@ function Inner(p: CanvasProps) {
 
   // Re-frame the picture after the structure (not the highlight) changes.
   useEffect(() => {
-    const id = window.setTimeout(() => { void fitView({ padding: 0.15, duration: reducedMotion() ? 0 : 300, maxZoom: 1.1 }); }, 90);
+    const id = window.setTimeout(() => { void fitView({ padding: 0.15, duration: reducedMotion() ? 0 : 300, maxZoom: 1.1 }); }, 150);
     return () => window.clearTimeout(id);
-  }, [flow, collapsed, showAll, arrangeTick, fitView]);
+  }, [flow, collapsed, showAll, arrangeTick, p.fitTick, fitView]);
 
   const onDragStop = useCallback((_: unknown, n: Node) => { dragged.current.set(n.id, n.position); }, []);
 
   return (
-    <div className="h-full w-full" aria-label="Column-level data flow graph">
+    <div className="absolute inset-0" aria-label="Column-level data flow graph">
       <ReactFlow
         nodes={nodes} edges={edges} nodeTypes={nodeTypes}
         onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
@@ -147,6 +151,14 @@ function Inner(p: CanvasProps) {
           <Button variant="outline" size="sm" onClick={p.onArrange} title="Re-run the automatic layout and fit the graph to the screen"><LayoutGrid size={13} /> Auto-arrange</Button>
           <Button variant="outline" size="sm" onClick={p.onCollapseAll} title="Hide all column rows so only table names remain"><Minimize2 size={13} /> Collapse all</Button>
           <Button variant="outline" size="sm" onClick={p.onExpandAll} title="Show the columns that take part in the flow"><Maximize2 size={13} /> Expand all</Button>
+        </Panel>
+        <Panel position="top-right">
+          <Button
+            variant={p.fullscreen ? 'default' : 'outline'} size="sm" onClick={p.onToggleFullscreen}
+            aria-pressed={p.fullscreen} title={p.fullscreen ? 'Leave fullscreen (Esc)' : 'Show the diagram fullscreen'}
+          >
+            {p.fullscreen ? <><Shrink size={13} /> Exit fullscreen</> : <><Expand size={13} /> Fullscreen</>}
+          </Button>
         </Panel>
       </ReactFlow>
     </div>

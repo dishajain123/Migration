@@ -16,7 +16,7 @@ const ROUTE_QUESTIONS: Record<string, string[]> = {
   '/lineage': ['How do I trace a column?'],
   '/procedures': ['Why are there no SQL bodies?'],
   '/mapping': ['How do I review a mapping?', 'What does the confidence % mean?'],
-  '/rules': ['How do I approve a rule?', 'What do the validation checks do?'],
+  '/rules': ['How do I convert CrisMac SQL to TRAQ rules?', 'Which TRAQ rule format is exported?', 'What do the validation checks do?'],
 };
 
 /** Sample procedure SQL is optional knowledge: if it cannot be loaded the chatbot still answers from the workbook and docs. */

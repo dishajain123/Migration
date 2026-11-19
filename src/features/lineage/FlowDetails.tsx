@@ -19,8 +19,8 @@ export function KindBadge({ kind }: { kind: FlowKind }) {
   return <span title={KIND_HINT[kind]}><Badge tone={kindTone[kind]}>{KIND_LABEL[kind]}</Badge></span>;
 }
 
-export function FlowDetails({ flow, groups, pick, selected, onTable, onTrace, onAdd }: {
-  flow: LineageFlow; groups: EdgeGroup[]; pick: Pick; selected: string[];
+export function FlowDetails({ flow, groups, pick, selected, onTable, onTrace, onAdd, className = 'max-h-[72vh] min-h-[22rem]' }: {
+  flow: LineageFlow; groups: EdgeGroup[]; pick: Pick; selected: string[]; className?: string;
   onTable: (name: string) => void; onTrace: (tables: string[]) => void; onAdd: (name: string) => void;
 }) {
   let body: ReactNode;
@@ -43,7 +43,7 @@ export function FlowDetails({ flow, groups, pick, selected, onTable, onTrace, on
     body = <Overview flow={flow} />;
   }
   return (
-    <Card className="flex max-h-[72vh] min-h-[22rem] flex-col overflow-hidden">
+    <Card className={`flex flex-col overflow-hidden ${className}`}>
       <CardHeader title={title} subtitle={subtitle} />
       <div key={`${pick.kind}:${'table' in pick ? pick.table : ''}:${'column' in pick ? pick.column : ''}:${'id' in pick ? pick.id : ''}`} className="anim-fade min-h-0 flex-1 overflow-auto">{body}</div>
     </Card>

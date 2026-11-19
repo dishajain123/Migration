@@ -38,6 +38,12 @@ On failure `data` is null and `error` is `{ "code": "...", "message": "..." }`. 
 | Rules | `GET /rules` | - | `BusinessRule[]` |
 | | `POST /rules/validate` | `ValidationRequest` | `ValidationReport` |
 | | `POST /rules/review` | `{ id, decision, comment }` | `{ id, decision }` |
+| Rule conversion | `POST /rule-conversion/analyze` | `{ files: UploadedSql[] }` | `SqlFileAnalysis[]` |
+| | `GET /rule-conversion/samples` | - | `SqlFileAnalysis[]` (the 14 sample procedures) |
+| | `GET /rule-conversion/templates` | - | `RuleTemplate[]` |
+| | `POST /rule-conversion/convert` | `ConversionRequest` (procedures, Agent 4 reviewed mappings, settings) | `ConversionResult` |
+
+Rule conversion notes: reviewer decisions and field edits (`RuleEdit`) stay client-side today (`stores/conversionStore`); a backend would add `POST /rule-conversion/review`. File generation (CSV/XLSX) is done in the browser from `traqRuleDoc`; a backend may return the same bytes. An LLM-assisted extractor can replace `convertProcedures` behind `/convert` provided it returns the same `ConvertedRule` shape, keeps `issues` for every assumption and marks model output `simulated: true` with provider/model in `ApiMeta`.
 | Dashboard | `GET /dashboard/summary` | - | `DashboardSummary` |
 | Chat | `POST /chat/ask` | `ChatRequest` (`question`, `history[]`, `route?`) | `ChatAnswer` (`kind`, `text`, `sources[]`, `followUps[]`) |
 | | `GET /chat/suggestions?route=` | query | `string[]` |

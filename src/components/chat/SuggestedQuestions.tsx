@@ -4,7 +4,7 @@ import { AsyncView } from '../ui';
 
 /** First-time-user prompts. Built by the service from real workbook object names, so each one returns a grounded answer. */
 export function SuggestedQuestions({ route, onAsk, disabled }: { route: string; onAsk: (q: string) => void; disabled: boolean }) {
-  const state = useAsync(() => services.chat.getSuggestedQuestions(route), [route]);
+  const state = useAsync(() => services.assistant.getSuggestedQuestions(route), [route]);
   return (
     <AsyncView state={state} isEmpty={(d) => d.length === 0} emptyMessage="No suggestions available.">
       {(qs) => (

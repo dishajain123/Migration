@@ -27,6 +27,12 @@ function traqColumnIndex(model: WorkbookModel): Map<string, { table: string; col
   });
 }
 
+/** TRAQ columns whose name equals `column` (case and underscores ignored; names shorter than 5 characters never match). */
+export function traqNameMatches(model: WorkbookModel, column: string): { table: string; column: string }[] {
+  const k = key(column);
+  return k.length < MIN_KEY ? [] : traqColumnIndex(model).get(k) ?? [];
+}
+
 export function traceProcedure(model: WorkbookModel, proc: ProcSource): ProcTrace {
   const idx = traqColumnIndex(model);
   const links = new Map<string, TraqColumnLink>();
