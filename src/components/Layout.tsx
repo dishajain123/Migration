@@ -107,7 +107,7 @@ export function Layout() {
           ))}
         </nav>
         <div className={cn('border-t border-border p-3 text-[11px] text-muted', collapsed && 'md:hidden')}>
-          Frontend demo. Agent outputs are deterministic or labelled <span className="font-medium text-warn">Simulated</span>; no AI service is called.
+          Deterministic results, or labelled <span className="font-medium text-warn">Simulated</span>/<span className="font-medium text-primary">AI</span> per item.
         </div>
         {/* Resize handle: a thin strip over the right border. Separate element so it never competes with nav clicks. */}
         <div

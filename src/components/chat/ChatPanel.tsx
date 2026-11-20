@@ -1,5 +1,5 @@
 import { Bot, Headphones, Maximize2, Minimize2, Sparkles, Square, Trash2, X } from 'lucide-react';
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { usePointerDrag } from '@/hooks/usePointerDrag';
 import { cn } from '@/lib/cn';
@@ -32,11 +32,26 @@ function ResizeHandle({ edge }: { edge: Edge }) {
     },
   });
   const pos = { corner: '-left-1 -top-1 h-4 w-4 cursor-nwse-resize', left: '-left-1 top-4 h-[calc(100%-1rem)] w-2 cursor-ew-resize', top: '-top-1 left-4 h-2 w-[calc(100%-1rem)] cursor-ns-resize' }[edge];
+  const label = { corner: 'Resize chat panel (width and height)', left: 'Resize chat panel width', top: 'Resize chat panel height' }[edge];
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const step = 16;
+    if (edge !== 'top' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); setChatSize(chatW + (e.key === 'ArrowLeft' ? step : -step), chatH); }
+    else if (edge !== 'left' && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); setChatSize(chatW, chatH + (e.key === 'ArrowUp' ? step : -step)); }
+  };
   return (
     <div
-      aria-hidden
+      role="separator"
+      aria-orientation={edge === 'top' ? 'horizontal' : 'vertical'}
+      aria-label={label}
+      title="Drag to resize"
+      tabIndex={0}
+      onKeyDown={onKeyDown}
       {...handleProps}
-      className={cn('absolute z-10 hidden touch-none sm:block', pos, edge === 'corner' && 'rounded-tl-lg hover:bg-primarybg')}
+      className={cn(
+        'absolute z-10 hidden touch-none sm:block',
+        pos, edge === 'corner' && 'rounded-tl-lg',
+        'hover:bg-primarybg focus-visible:bg-primarybg focus-visible:outline-none',
+      )}
     />
   );
 }

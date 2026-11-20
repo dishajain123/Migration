@@ -187,6 +187,12 @@ function buildRule(
         return { text: `[[UNMAPPED ${t}.${c}]]`, resolution: res, issue: { severity: 'error', code: 'UNMAPPED', message: `${t}.${c} has no TRAQ mapping. Add one in Agent 4 (or here, as a manual mapping).` } };
       }
       const ch = res.chosen;
+      if (res.status === 'suggested') {
+        return {
+          text: `"${ch.table}"."${ch.column}"`, resolution: res,
+          issue: { severity: 'error', code: 'SUGGESTED', message: `${t}.${c} has no mapping, so "${ch.table}"."${ch.column}" is Agent 4's Simulated suggestion (${ch.confidence ?? '?'}% confidence against the TRAQ data model), not a confirmed mapping. Approve it in Agent 4 before this rule can export.` },
+        };
+      }
       if (!entity || ch.table === entity) return { text: `"${ch.table}"."${ch.column}"`, resolution: res };
       const link = `FK_${ch.table}`;
       if (entityDef?.columns.some((x) => x.name.toUpperCase() === link)) {
@@ -204,10 +210,12 @@ function buildRule(
   if (!target.chosen) issues.unshift({ severity: 'error', code: 'NO_TARGET', message: `${table}.${column} has no TRAQ column in Agent 4 or the workbook, so there is nothing to write the rule to.` });
   else if (target.status === 'name-match') issues.unshift({ severity: 'warning', code: 'TARGET_NAME_MATCH', message: `Target ${entity}.${target.chosen.column} was found by name only; approve the mapping in Agent 4.` });
   else if (target.status === 'ambiguous') issues.unshift({ severity: 'warning', code: 'TARGET_AMBIGUOUS', message: target.note });
+  else if (target.status === 'suggested') issues.unshift({ severity: 'error', code: 'TARGET_SUGGESTED', message: `Target ${entity}.${target.chosen.column} is Agent 4's Simulated suggestion (${target.chosen.confidence ?? '?'}% confidence), not a confirmed mapping. Approve it in Agent 4 before this rule can export.` });
   const references = Array.from(refs.values());
   for (const r of references) {
     if (r.status === 'name-match') issues.push({ severity: 'warning', code: 'REF_NAME_MATCH', message: `${r.crismacTable}.${r.crismacColumn} -> ${r.chosen?.table}.${r.chosen?.column} is a name match only; confirm in Agent 4.` });
     if (r.status === 'ambiguous') issues.push({ severity: 'warning', code: 'REF_AMBIGUOUS', message: `${r.crismacTable}.${r.crismacColumn}: ${r.note}` });
+    if (r.status === 'suggested') issues.push({ severity: 'error', code: 'REF_SUGGESTED', message: `${r.crismacTable}.${r.crismacColumn} -> ${r.chosen?.table}.${r.chosen?.column} is Agent 4's Simulated suggestion (${r.chosen?.confidence ?? '?'}% confidence), not a confirmed mapping.` });
     const k = `${r.crismacTable}.${r.crismacColumn}`;
     const step = earlier.get(k);
     if (step !== undefined && step < (writes[0]?.step.index ?? 0)) {

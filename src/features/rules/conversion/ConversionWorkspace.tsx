@@ -68,7 +68,7 @@ export function ConversionWorkspace() {
         <span className="ml-auto flex items-center gap-2"><Badge tone="ok">Rule-based, no AI</Badge><SimulatedBadge label="Confidence is simulated" /></span>
       </div>
 
-      <nav aria-label="Conversion steps" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+      <nav aria-label="Conversion steps" className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
         {steps.map((s, i) => {
           const Icon = s.icon;
           const active = s.id === step;

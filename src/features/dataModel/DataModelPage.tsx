@@ -30,7 +30,7 @@ export function DataModelPage() {
         <Card>
           <CardHeader title="Tables" subtitle="Filter by system or layer" />
           <div className="flex flex-wrap gap-2 border-b border-border p-3">
-            <Input placeholder="Search tables..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full" />
+            <Input placeholder="Search tables..." value={search} onChange={(e) => setSearch(e.target.value)} className="min-w-[9rem] flex-1" />
             <Select value={system} onChange={(e) => setSystem(e.target.value as SystemKind | '')}>
               <option value="">All systems</option><option value="TRAQ">TRAQ (target)</option><option value="CrisMac">CrisMac / feeds (source)</option>
             </Select>
@@ -129,7 +129,7 @@ function RelationshipsPanel({ name, onOpen }: { name: string; onOpen: (t: string
               { key: 'f', header: 'From (column)', render: (r) => <button className="font-mono text-xs text-primary hover:underline" onClick={() => onOpen(r.fromTable)}>{r.fromTable}.{r.fromColumn}</button> },
               { key: 't', header: 'Resolves via', render: (r) => <button className="font-mono text-xs text-primary hover:underline" onClick={() => onOpen(r.toTable)}>{r.toTable}.{r.toColumn}</button> },
               { key: 'k', header: 'Kind', render: (r) => <Badge>{r.kind}</Badge> },
-              { key: 'r', header: 'Remark', render: (r) => <span className="text-xs text-muted" title={`${r.sheet} row ${r.rowNo}`}>{r.remark.length > 140 ? `${r.remark.slice(0, 140)}...` : r.remark}</span> },
+              { key: 'r', header: 'Remark', render: (r) => <span className={`text-xs text-muted${r.remark.length > 140 ? ' cursor-help underline decoration-dotted underline-offset-2' : ''}`} title={r.remark ? `${r.remark} (${r.sheet} row ${r.rowNo})` : `${r.sheet} row ${r.rowNo}`}>{r.remark.length > 140 ? `${r.remark.slice(0, 140)}...` : r.remark}</span> },
             ]}
           />
         )}
@@ -177,7 +177,7 @@ function ComparePanel({ initialTarget }: { initialTarget: string }) {
                   { key: 's', header: 'Source column', render: (r) => <span className="font-mono text-xs">{r.sourceColumn || '(none)'} <span className="text-muted">{r.sourceType}</span></span> },
                   { key: 't', header: 'Target column', render: (r) => <span className="font-mono text-xs">{r.targetColumn} <span className="text-muted">{r.targetType}</span></span> },
                   { key: 'm', header: 'Map type', render: (r) => <Badge>{r.mapType || '—'}</Badge> },
-                  { key: 'c', header: 'Compatibility', render: (r) => <span title={r.note}><Badge tone={compatTone[r.compat as CompatLevel]}>{r.compat}</Badge></span> },
+                  { key: 'c', header: 'Compatibility', render: (r) => <span className={r.note ? 'cursor-help' : ''} title={r.note}><Badge tone={compatTone[r.compat as CompatLevel]}>{r.compat}</Badge></span> },
                 ]}
               />
               <div className="grid gap-3 border-t border-border p-3 text-xs md:grid-cols-2">

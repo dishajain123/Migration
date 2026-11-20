@@ -1,5 +1,6 @@
 import { CheckCircle2, ExternalLink, KeyRound, Loader2, PlugZap, Trash2, XCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Button, Card, CardHeader, Input, PageHeader, Select } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { aiGateway, useAiStore } from '@/stores/aiStore';
@@ -20,7 +21,14 @@ export function AiSettingsPage() {
       <PageHeader
         title="AI Settings"
         description="Choose the AI provider and model every agent uses. Keys are encrypted on the gateway server and never returned to the browser."
-        right={overview?.active && <Badge tone="ok">Active: {overview.providers.find((p) => p.info.id === overview.active?.provider)?.info.label} · {overview.active.model}</Badge>}
+        right={<span className="flex items-center gap-2">
+          <InfoTip title="Test connection vs. Save vs. Save & activate" align="right">
+            <span><b>Test connection:</b> checks the key works - nothing is saved yet.</span>
+            <span><b>Save:</b> stores this provider's key/model so it's ready to use, without changing which provider is active.</span>
+            <span><b>Save & activate:</b> saves and switches every agent to this provider/model right away.</span>
+          </InfoTip>
+          {overview?.active && <Badge tone="ok">Active: {overview.providers.find((p) => p.info.id === overview.active?.provider)?.info.label} · {overview.active.model}</Badge>}
+        </span>}
       />
       <AsyncView state={state}>
         {(o) => {

@@ -129,7 +129,11 @@ function LinkList({ heading, empty, edges, pick, onTable }: {
               <button type="button" onClick={() => onTable(pick(e))} className="w-full rounded-md border border-border px-2 py-1.5 text-left text-xs transition-colors hover:bg-surface2">
                 <span className="font-mono font-medium">{pick(e)}</span>
                 <span className="ml-2 text-muted">{e.count} column mapping{e.count === 1 ? '' : 's'}</span>
-                {e.procedures.length > 0 && <span className="mt-0.5 block text-[11px] text-muted">Mentioned with: {e.procedures.map((p) => p.name).join(', ')}</span>}
+                {e.procedures.length > 0 && (
+                  <span className="mt-0.5 block cursor-help text-[11px] text-muted underline decoration-dotted underline-offset-2" title="The workbook text mentions these objects together with both tables. This is a name match, not a documented link.">
+                    Mentioned with: {e.procedures.map((p) => p.name).join(', ')}
+                  </span>
+                )}
               </button>
             </li>
           ))}
@@ -162,7 +166,7 @@ function EdgeBody({ flow, group }: { flow: LineageFlow; group: EdgeGroup }) {
     <div className="space-y-3 p-4 text-sm">
       <p className="text-xs text-muted">{group.items.length} column mapping{group.items.length === 1 ? '' : 's'} on this arrow. Data moves from {group.sourceTable} into {group.targetTable}.</p>
       {te && te.procedures.length > 0 && (
-        <p className="text-xs text-muted" title="The workbook text mentions these objects together with both tables. This is a name match, not a documented link.">
+        <p className="cursor-help text-xs text-muted underline decoration-dotted underline-offset-2" title="The workbook text mentions these objects together with both tables. This is a name match, not a documented link.">
           Mentioned together with these tables: {te.procedures.map((p) => p.name).join(', ')}
         </p>
       )}

@@ -7,8 +7,10 @@ import { mapExpr, sqlText, type Expr } from './sqlExpr';
  * Every construct emitted here appears in a live rule of the workbook's FPM_DA_RULES sheet ("EXPRESSION AS SAVED IN
  * THE APP"): "TABLE"."COLUMN" references, link chains "TABLE"."FK_X"."COLUMN", IF(c)THEN(a)ELSE(b), AND(...),
  * OR(...), (x)IN[...], ==, !=, >, >=, COALESCE, ISEMPTY, ISNOTEMPTY, TRIM, TODATE and DATEDIFF(later,earlier,"d").
- * Anything else is either rewritten into those forms (BETWEEN, NOT IN, IIF, NULLIF, NOT over comparisons) or kept and
- * flagged, so a reviewer always sees what was not backed by evidence.
+ * Anything else is either rewritten into those forms (IIF, NULLIF, NOT over comparisons) or into a function/operator
+ * documented in the TRAQ Derived Attributes rule-engine reference (NOTIN[...], BETWEEN[...], CONTAINS/BEGINSWITH/
+ * ENDSWITH/REGEX for LIKE, SUBSTR, UPPER, LOWER, LEN, ROUND, REPLACE, CONCAT, ADDDAY, DATEPART), or kept and flagged,
+ * so a reviewer always sees what was not backed by evidence.
  */
 
 export interface ColumnRef { text: string; resolution: ColumnResolution | null; issue?: ConversionIssue }
@@ -27,8 +29,10 @@ const PREC: Record<string, number> = { '*': 3, '/': 3, '%': 3, '+': 2, '-': 2, '
 const CMP_OUT: Record<string, string> = { '=': '==', '<>': '!=', '!=': '!=', '<': '<', '>': '>', '<=': '<=', '>=': '>=' };
 const CMP_NEG: Record<string, string> = { '=': '<>', '<>': '=', '!=': '=', '<': '>=', '>': '<=', '<=': '>', '>=': '<' };
 const DAY_PARTS = new Set(['DAY', 'DD', 'D', 'DY', 'DAYOFYEAR']);
-const EVIDENCED_FUNCTIONS = new Set(['COALESCE', 'ISEMPTY', 'ISNOTEMPTY', 'TRIM', 'TODATE', 'DATEDIFF']);
+// Same name and argument order in both languages (TRAQ Derived Attributes rule reference, Functions palette).
+const EVIDENCED_FUNCTIONS = new Set(['COALESCE', 'ISEMPTY', 'ISNOTEMPTY', 'TRIM', 'TODATE', 'DATEDIFF', 'UPPER', 'LOWER', 'LEN', 'ROUND', 'REPLACE', 'CONCAT']);
 const AGGREGATES = new Set(['SUM', 'COUNT', 'AVG', 'MAX', 'MIN', 'STRING_AGG']);
+const SCD2_BOUNDARY_RE = /EFFECTIVE_?(?:FROM|TO)TIMEKEY|RECORD_(?:START|END)_DATE/i;
 
 /** Replace parameters that have a known value and simplify the constant parts (e.g. `@TIMEKEY > 26372` with @TIMEKEY = 26400). */
 export function foldConstants(e: Expr, values: Record<string, string>): Expr {
@@ -79,6 +83,28 @@ export function translate(e: Expr, ctx: TranslateContext): Translation {
 
   const cond = (x: Expr): string => emit(x, 0);
 
+  /** A bare column, variable or literal - the only argument shapes the workbook evidences for ISEMPTY/ISNOTEMPTY/DATEDIFF. */
+  const isSimpleArg = (x: Expr): boolean => x.k === 'col' || x.k === 'var' || x.k === 'num' || x.k === 'str' || x.k === 'null';
+
+  /** Does this expression read a date/datetime-typed TRAQ column (not a day-part token like DAY)? */
+  const isDateColumn = (x: Expr): boolean => {
+    if (x.k !== 'col') return false;
+    if (x.parts.length === 1 && DAY_PARTS.has(x.parts[0])) return false;
+    const r = ctx.column(x.parts);
+    return /DATE|TIMEKEY|TIMESTAMP/i.test(r.resolution?.chosen?.dataType ?? '');
+  };
+
+  /** Does this expression read an SCD2 effective/record-date boundary column? CrisMac closes the prior row the day
+   * before the new one starts (inclusive end); TRAQ's RECORD_START_DATE/RECORD_END_DATE closes on the business date
+   * itself and reads start <= d < end (exclusive end) - a documented semantic shift, not something this conversion
+   * adjusts automatically. */
+  const isScd2Boundary = (x: Expr): boolean => {
+    if (x.k !== 'col') return false;
+    const last = x.parts[x.parts.length - 1] ?? '';
+    const chosenCol = ctx.column(x.parts).resolution?.chosen?.column ?? '';
+    return SCD2_BOUNDARY_RE.test(last) || SCD2_BOUNDARY_RE.test(chosenCol);
+  };
+
   /** NOT pushed inwards, because no workbook rule uses a NOT function. */
   const negate = (x: Expr): Expr | null => {
     switch (x.k) {
@@ -116,6 +142,9 @@ export function translate(e: Expr, ctx: TranslateContext): Translation {
         return `IF(${cond(a[0])})THEN(${emit(a[1], 0)})ELSE(${emit(a[2], 0)})`;
       case 'DATEDIFF': {
         if (a.length !== 3) break;
+        if (!isSimpleArg(a[1]) || !isSimpleArg(a[2])) {
+          flag({ severity: 'warning', code: 'ARG_NOT_SIMPLE', message: "DATEDIFF's date arguments are computed expressions, not bare columns or variables; TRAQ's documented form takes only a column or var reference here - a computed value may need a Temporary variable first." });
+        }
         const part = a[0].k === 'col' ? a[0].parts.join('.') : sqlText(a[0]);
         if (!DAY_PARTS.has(part)) {
           flag({ severity: 'error', code: 'DATEDIFF_PART', message: `DATEDIFF(${part}, ...) has no documented TRAQ form; the workbook only shows day differences ("d").` });
@@ -123,6 +152,29 @@ export function translate(e: Expr, ctx: TranslateContext): Translation {
         }
         flag({ severity: 'info', code: 'DATEDIFF_ORDER', message: 'T-SQL DATEDIFF(DAY, earlier, later) was written as DATEDIFF(later, earlier, "d"), the argument order of the live IS_PUI_NPA rule in FPM_DA_RULES. The dd_export drafts use the opposite order; confirm once in TRAQ.' });
         return `DATEDIFF(${emit(a[2], 0)},${emit(a[1], 0)},"d")`;
+      }
+      case 'SUBSTRING':
+        if (a.length !== 3) break;
+        return `SUBSTR(${args()})`;
+      case 'DATEADD': {
+        if (a.length !== 3) break;
+        const part = a[0].k === 'col' ? a[0].parts.join('.') : sqlText(a[0]);
+        if (DAY_PARTS.has(part) && a[1].k === 'num') return `ADDDAY(${emit(a[2], 0)},"${a[1].v}")`;
+        flag({ severity: 'warning', code: 'ADDDAY_UNVERIFIED', message: `DATEADD(${part}, ...) kept as written; TRAQ's documented ADDDAY(date,"n") only covers a whole-day offset given as a literal number, so this form needs manual review.` });
+        return `DATEADD(${part},${emit(a[1], 0)},${emit(a[2], 0)})`;
+      }
+      case 'DATEPART': {
+        if (a.length !== 2) break;
+        const part = a[0].k === 'col' ? a[0].parts.join('.') : sqlText(a[0]);
+        flag({ severity: 'warning', code: 'DATEPART_UNVERIFIED', message: `DATEPART reordered to TRAQ's DATEPART(date,part) form; TRAQ's part-name vocabulary for this function is not documented in the workbook or the app's catalog, so "${part}" is passed through unverified - confirm in TRAQ before approving.` });
+        return `DATEPART(${emit(a[1], 0)},"${part.toLowerCase()}")`;
+      }
+      case 'FLOOR':
+      case 'CEILING':
+      case 'CEIL': {
+        const traqName = x.name === 'CEILING' ? 'CEIL' : x.name;
+        flag({ severity: 'warning', code: 'FUNCTION_ARITY', message: `TRAQ's ${traqName}(...) takes two arguments (value, and a second operand whose meaning is not documented); the one-argument T-SQL form was kept as written - confirm the correct TRAQ form by hand.` });
+        return `${traqName}(${args()})`;
       }
       case 'LTRIM':
       case 'RTRIM': {
@@ -189,7 +241,15 @@ export function translate(e: Expr, ctx: TranslateContext): Translation {
         return ifChain(x.whens, x.else, cond);
       case 'bin': {
         const p = PREC[x.op] ?? 2;
-        if (p === 1) return `${emit(x.l, 2)}${CMP_OUT[x.op]}${emit(x.r, 2)}`;
+        if (p === 1) {
+          if (isDateColumn(x.l) && isDateColumn(x.r)) {
+            flag({ severity: 'warning', code: 'DATE_COMPARISON', message: 'Both sides are date-typed TRAQ columns compared directly. The TRAQ Derived Attribute rule engine accepts this at save time but can fail when the rule actually runs; dates must be compared through DATEDIFF(...), typically guarded by ISEMPTY(...)/COALESCE(...). Rewrite by hand before approving.' });
+          }
+          if (isScd2Boundary(x.l) || isScd2Boundary(x.r)) {
+            flag({ severity: 'info', code: 'SCD2_BOUNDARY', message: "This comparison touches an SCD2 effective/record-date boundary. CrisMac's EffectiveToTimeKey convention closes a row the day before the new one starts (inclusive end); TRAQ's RECORD_START_DATE/RECORD_END_DATE convention closes on the business date itself, read as start <= d < end (exclusive end). Confirm the boundary direction by hand - this is a documented semantic difference, not something this conversion adjusts automatically." });
+          }
+          return `${emit(x.l, 2)}${CMP_OUT[x.op]}${emit(x.r, 2)}`;
+        }
         const s = `${emit(x.l, p)}${x.op}${emit(x.r, p + 1)}`;
         return p < parent ? `(${s})` : s;
       }
@@ -202,20 +262,53 @@ export function translate(e: Expr, ctx: TranslateContext): Translation {
         return `NOT(${cond(x.e)})`;
       }
       case 'neg': return `-${emit(x.e, 4)}`;
-      case 'isnull': return `${x.not ? 'ISNOTEMPTY' : 'ISEMPTY'}(${emit(x.e, 0)})`;
+      case 'isnull': {
+        if (!isSimpleArg(x.e)) {
+          flag({ severity: 'warning', code: 'ARG_NOT_SIMPLE', message: `${x.not ? 'ISNOTEMPTY' : 'ISEMPTY'}'s argument is a computed expression, not a bare column or variable; TRAQ's documented form takes only a column or var reference here - a computed value may need a Temporary variable first.` });
+        }
+        return `${x.not ? 'ISNOTEMPTY' : 'ISEMPTY'}(${emit(x.e, 0)})`;
+      }
       case 'in': {
         const target = emit(x.e, 0);
         const list = x.list.map((y) => emit(y, 0));
-        if (x.not) return `AND(${list.map((v) => `${target}!=${v}`).join(',')})`;
+        if (x.not) return `(${target})NOTIN[${list.join(',')}]`;
         return `(${target})IN[${list.join(',')}]`;
       }
       case 'between': {
+        const dateInvolved = isDateColumn(x.e);
+        if (dateInvolved) {
+          flag({ severity: 'warning', code: 'DATE_COMPARISON', message: 'BETWEEN on a date-typed TRAQ column was expanded to AND(...) range comparisons rather than the native BETWEEN[...] operator, since nothing in the workbook or the rule-engine reference confirms native BETWEEN is exempt from the direct-date-comparison failure documented elsewhere. Confirm by hand, or rewrite using DATEDIFF(...) guards.' });
+        }
         const v = emit(x.e, 2);
-        return x.not ? `OR(${v}<${emit(x.lo, 2)},${v}>${emit(x.hi, 2)})` : `AND(${v}>=${emit(x.lo, 2)},${v}<=${emit(x.hi, 2)})`;
+        if (x.not) return `OR(${v}<${emit(x.lo, 2)},${v}>${emit(x.hi, 2)})`;
+        if (!dateInvolved) return `(${v})BETWEEN[${emit(x.lo, 2)},${emit(x.hi, 2)}]`;
+        return `AND(${v}>=${emit(x.lo, 2)},${v}<=${emit(x.hi, 2)})`;
       }
-      case 'like':
-        flag({ severity: 'error', code: 'LIKE', message: `LIKE ${sqlText(x.pattern)} has no documented TRAQ formula equivalent (decision tables use CONTAINS). Rewrite by hand.` });
-        return `[[UNSUPPORTED ${sqlText(x)}]]`;
+      case 'like': {
+        if (x.pattern.k !== 'str') {
+          flag({ severity: 'error', code: 'LIKE_DYNAMIC', message: 'LIKE pattern is not a literal; TRAQ has no documented way to express a computed pattern. Rewrite by hand.' });
+          return `[[UNSUPPORTED ${sqlText(x)}]]`;
+        }
+        const pat = x.pattern.v;
+        const target = emit(x.e, 0);
+        const leading = pat.startsWith('%');
+        const trailing = pat.endsWith('%') && pat.length > 1;
+        const bare = pat.replace(/^%/, '').replace(/%$/, '');
+        const innerWildcard = /[%_]/.test(bare);
+        let out: string;
+        if (!innerWildcard && leading && trailing) out = `CONTAINS(${target},${str(bare)})`;
+        else if (!innerWildcard && trailing && !leading) out = `BEGINSWITH(${target},${str(bare)})`;
+        else if (!innerWildcard && leading && !trailing) out = `ENDSWITH(${target},${str(bare)})`;
+        else {
+          flag({ severity: 'warning', code: 'LIKE_REGEX', message: `LIKE ${sqlText(x.pattern)} has internal or mixed wildcards; written as REGEX(...), TRAQ's documented pattern-match function. The wildcard-to-regex escaping is not evidenced in the workbook - confirm the pattern syntax in TRAQ before approving.` });
+          out = `REGEX(${target},${str(pat)})`;
+        }
+        if (x.not) {
+          flag({ severity: 'info', code: 'LIKE_NEGATED', message: 'NOT LIKE written as NOT(...); only CONTAINS/DOESNOTCONTAINS is a documented native negation pair, so this wraps the positive form rather than guessing a DOESNOTCONTAINS/NOTBEGINSWITH/NOTENDSWITH equivalent.' });
+          return `NOT(${out})`;
+        }
+        return out;
+      }
       case 'unsupported':
         flag({ severity: 'error', code: 'UNSUPPORTED', message: `${x.reason} cannot be expressed in a single-row TRAQ rule: ${x.text.slice(0, 120)}` });
         return `[[UNSUPPORTED ${x.reason}]]`;

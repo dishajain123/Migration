@@ -30,7 +30,7 @@ export interface MappingRow {
   rules: string[];
 }
 
-const STATUS_ORDER: Record<MappingStatus, number> = { missing: 0, ambiguous: 1, 'name-match': 2, documented: 3, approved: 4 };
+const STATUS_ORDER: Record<MappingStatus, number> = { missing: 0, suggested: 1, ambiguous: 2, 'name-match': 3, documented: 4, approved: 5 };
 
 /** Every distinct CrisMac column the rules write or read, with its TRAQ resolution and how many rules depend on it. */
 export function mappingRows(rules: ConvertedRule[]): MappingRow[] {

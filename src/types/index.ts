@@ -483,8 +483,8 @@ export interface ValidationRequest { reviewed: ReviewedMapping[] }
 
 // ---------- Agent 5: CrisMac SQL -> TRAQ rule migration (Phase 10) ----------
 /** How a CrisMac column was matched to TRAQ. Tiers in priority order: Agent 4 manual, Agent 4 approved, workbook, name match. */
-export type MappingBasis = 'agent4-manual' | 'agent4-approved' | 'workbook' | 'name-match';
-export type MappingStatus = 'approved' | 'documented' | 'name-match' | 'ambiguous' | 'missing';
+export type MappingBasis = 'agent4-manual' | 'agent4-approved' | 'workbook' | 'name-match' | 'agent4-suggestion';
+export type MappingStatus = 'approved' | 'documented' | 'name-match' | 'ambiguous' | 'missing' | 'suggested';
 export interface MappingCandidate {
   table: string;
   column: string;
@@ -493,6 +493,8 @@ export interface MappingCandidate {
   mapType?: string;
   sheet?: string;
   rowNo?: number;
+  /** Agent 4's heuristic match score (0-100), set only when basis is 'agent4-suggestion'. Simulated, not a workbook fact. */
+  confidence?: number;
 }
 export interface ColumnResolution {
   /** Logical CrisMac table (schema and # removed, upper-case) and column (upper-case). */

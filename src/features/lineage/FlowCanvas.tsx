@@ -147,7 +147,7 @@ function Inner(p: CanvasProps) {
           pannable zoomable
           nodeColor={(n) => LAYER_COLOR[(n.data as TableNodeData | undefined)?.table.layer ?? ''] ?? '#64748b'}
         />
-        <Panel position="top-left" className="flex gap-1.5">
+        <Panel position="top-left" className="flex max-w-[calc(100%-7rem)] flex-wrap gap-1.5">
           <Button variant="outline" size="sm" onClick={p.onArrange} title="Re-run the automatic layout and fit the graph to the screen"><LayoutGrid size={13} /> Auto-arrange</Button>
           <Button variant="outline" size="sm" onClick={p.onCollapseAll} title="Hide all column rows so only table names remain"><Minimize2 size={13} /> Collapse all</Button>
           <Button variant="outline" size="sm" onClick={p.onExpandAll} title="Show the columns that take part in the flow"><Maximize2 size={13} /> Expand all</Button>

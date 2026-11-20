@@ -105,6 +105,9 @@ export function validateForExport(
     if (/\[\[(UNMAPPED|PARAM|UNSUPPORTED)/.test(f.expression)) {
       out.push({ ruleId: r.id, field: 'expression', severity: 'error', message: 'The expression still contains [[...]] placeholders (unmapped columns, parameters or unsupported SQL).' });
     }
+    if (r.target.status === 'suggested' || r.references.some((x) => x.status === 'suggested')) {
+      out.push({ ruleId: r.id, field: 'expression', severity: 'error', message: "The expression reads or writes a column resolved only by Agent 4's Simulated suggestion heuristic, not a confirmed mapping. Map it in Agent 4 (the suggested table/column is pre-filled) before this rule can export." });
+    }
     if (r.status === 'failed' && !edits[r.id]?.traq?.expression) {
       out.push({ ruleId: r.id, field: 'status', severity: 'error', message: 'Conversion failed and the rule was not corrected by hand.' });
     }

@@ -2,6 +2,8 @@ import { Check, Trash2, Undo2, X } from 'lucide-react';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AiInsightPanel } from '@/components/AiInsightPanel';
+import { ConfirmDialog } from '@/components/Dialog';
+import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Progress, Select, SimulatedBadge, Tabs } from '@/components/ui';
 import { noResult, useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
@@ -20,8 +22,15 @@ export function MappingPage() {
     <div>
       <PageHeader
         title="Agent 4 · Migration Mapping Engine"
-        description="Review documented mappings, see columns that no mapping feeds, and approve / reject / manually add mappings. Suggestions and their confidence are a deterministic heuristic over column names and types."
-        right={<OriginBadge meta={targets.meta} />}
+        description="Review mappings, see unfed columns, and approve, reject or manually add mappings."
+        right={<span className="flex items-center gap-2">
+          <InfoTip title="About Agent 4" align="right">
+            <span><b>Documented mappings:</b> source/target pairs stated in the workbook, used as-is.</span>
+            <span><b>Suggestions:</b> a deterministic heuristic scores candidate columns by name-token overlap and type compatibility - never an AI guess, never auto-approved.</span>
+            <span><b>Manual mapping:</b> your own confirmed pairing, stored here and reused by every agent.</span>
+          </InfoTip>
+          <OriginBadge meta={targets.meta} />
+        </span>}
       />
       {lastError && <div className="mb-3 rounded-md border border-bad bg-badbg p-2 text-xs text-bad">{lastError}</div>}
       <Card className="mb-4">
@@ -61,11 +70,13 @@ function Suggestions({ table }: { table: string }) {
   const clear = useReviewStore((s) => s.clearMappingDecision);
   const [min, setMin] = useState(0);
   const [status, setStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [confirmBulk, setConfirmBulk] = useState(false);
   return (
     <AsyncView state={state} isEmpty={(d) => d.length === 0} emptyMessage="No candidate source columns scored above the heuristic threshold for this table.">
       {(all) => {
         const stat = (s: Suggestion) => decisions[s.id]?.decision ?? 'pending';
         const rows = all.filter((s) => s.confidence >= min && (status === 'all' || stat(s) === status));
+        const pendingCount = rows.filter((s) => stat(s) === 'pending').length;
         const mk = (s: Suggestion) => ({ id: s.id, targetTable: s.targetTable, targetColumn: s.targetColumn, targetType: s.targetType, sourceTable: s.sourceTable, sourceColumn: s.sourceColumn, sourceType: s.sourceType });
         const bulk = async () => { for (const s of rows) if (stat(s) === 'pending') await review(s.id, 'approved', `Bulk approve >= ${min}%`, mk(s)); };
         return (
@@ -75,9 +86,14 @@ function Suggestions({ table }: { table: string }) {
               <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
                 <option value="all">All</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
               </Select>
-              <Button size="sm" variant="outline" onClick={bulk} disabled={min < 50}>Approve all pending shown{min < 50 ? ' (set min ≥ 50%)' : ''}</Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirmBulk(true)} disabled={min < 50 || pendingCount === 0}>Approve all pending shown{min < 50 ? ' (set min ≥ 50%)' : ''}</Button>
               <span className="ml-auto text-xs text-muted">{rows.length} of {all.length} shown</span>
             </div>
+            <ConfirmDialog
+              open={confirmBulk} onCancel={() => setConfirmBulk(false)} onConfirm={() => { setConfirmBulk(false); void bulk(); }}
+              title={`Approve ${pendingCount} suggestion(s)?`} confirmLabel="Approve all" tone="default"
+              body={`Every pending suggestion scoring ${min}% or higher in the current filter is approved as a mapping. This still a Simulated heuristic result - review it in Agent 4 or the Suggestions tab afterward if anything looks wrong.`}
+            />
             <DataTable<Suggestion> rows={rows} rowKey={(s) => s.id} pageSize={15}
               columns={[
                 { key: 'tgt', header: 'Target', render: (s) => <div className="font-mono text-xs">{s.targetColumn}<div className="text-muted">{s.targetType || '-'}</div></div> },

@@ -13,13 +13,15 @@ export function allRelationships(model: WorkbookModel): Relationship[] {
       const kind = m.mapType.toUpperCase();
       if ((kind !== 'LOOKUP' && kind !== 'JOIN') || !m.targetTable || !m.targetColumn) continue;
       const dims = Array.from(new Set(m.remark.match(/\bDIM_[A-Z0-9_]+/g) ?? []));
-      const toTable = dims.length ? dims[0] : m.sourceTable;
-      if (!toTable || toTable === m.targetTable) continue;
-      const toColumn = dims.length ? '(dimension key)' : m.sourceColumn || '(not stated)';
-      out.push({
-        id: m.id, fromTable: m.targetTable, fromColumn: m.targetColumn, toTable, toColumn, kind,
-        remark: m.remark, sheet: m.sheet, rowNo: m.rowNo,
-      });
+      const toTables = dims.length ? dims : [m.sourceTable];
+      for (const toTable of toTables) {
+        if (!toTable || toTable === m.targetTable) continue;
+        const toColumn = dims.length ? '(dimension key)' : m.sourceColumn || '(not stated)';
+        out.push({
+          id: dims.length > 1 ? `${m.id}:${toTable}` : m.id, fromTable: m.targetTable, fromColumn: m.targetColumn, toTable, toColumn, kind,
+          remark: m.remark, sheet: m.sheet, rowNo: m.rowNo,
+        });
+      }
     }
     return out;
   });

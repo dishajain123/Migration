@@ -79,8 +79,14 @@ export function AnalysisStep({ dependencies, onNext }: { dependencies: ProcDepen
                       { key: 't', header: 'Operation', render: (x) => <Badge tone={x.type === 'EXEC' ? 'neutral' : 'primary'}>{x.type}</Badge> },
                       { key: 'g', header: 'Target', render: (x) => <span className="font-mono text-xs">{x.type === 'EXEC' ? x.callee : x.table}{x.tableKind !== 'table' && x.type !== 'EXEC' && <span className="ml-1 text-muted">({x.tableKind})</span>}</span> },
                       { key: 'c', header: 'Columns set', render: (x) => <span className="text-xs" title={x.columns.map((c) => c.name).join(', ')}>{x.columns.length ? clip(x.columns.map((c) => c.name).join(', '), 60) : '-'}</span> },
-                      { key: 'j', header: 'Joins', render: (x) => <span className="text-xs" title={(x.joins ?? []).map((j) => `${j.kind} ${j.table} ON ${j.on}`).join('\n')}>{(x.joins ?? []).map((j) => `${j.kind} ${j.table}`).join(', ') || '-'}</span> },
-                      { key: 'w', header: 'Conditions', render: (x) => <span className="text-xs text-muted" title={[x.guard && `IF: ${x.guard}`, x.where && `WHERE: ${x.where}`].filter(Boolean).join('\n')}>{clip([x.guard && `IF ${x.guard}`, x.where && `WHERE ${x.where}`].filter(Boolean).join(' · '), 80) || '-'}</span> },
+                      { key: 'j', header: 'Joins', render: (x) => {
+                        const full = (x.joins ?? []).map((j) => `${j.kind} ${j.table} ON ${j.on}`).join('\n');
+                        return <span className={`text-xs${full ? ' cursor-help underline decoration-dotted underline-offset-2' : ''}`} title={full}>{(x.joins ?? []).map((j) => `${j.kind} ${j.table}`).join(', ') || '-'}</span>;
+                      } },
+                      { key: 'w', header: 'Conditions', render: (x) => {
+                        const full = [x.guard && `IF: ${x.guard}`, x.where && `WHERE: ${x.where}`].filter(Boolean).join('\n');
+                        return <span className={`text-xs text-muted${full ? ' cursor-help underline decoration-dotted underline-offset-2' : ''}`} title={full}>{clip([x.guard && `IF ${x.guard}`, x.where && `WHERE ${x.where}`].filter(Boolean).join(' · '), 80) || '-'}</span>;
+                      } },
                       { key: 'l', header: 'Lines', render: (x) => <button type="button" className="text-xs text-primary hover:underline" onClick={() => setPreview({ file: f, lines: [x.lineStart, x.lineEnd] })}>{x.lineStart}-{x.lineEnd}</button> },
                     ]}
                   />

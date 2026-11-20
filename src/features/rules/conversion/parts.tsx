@@ -21,8 +21,8 @@ export function DecisionBadge({ decision }: { decision: RuleDecision | 'pending'
   return <Badge tone={decision === 'approved' ? 'ok' : decision === 'rejected' ? 'bad' : 'neutral'}>{decision === 'pending' ? 'Pending review' : decision === 'approved' ? 'Approved' : 'Rejected'}</Badge>;
 }
 
-const MAP_LABEL: Record<MappingStatus, string> = { approved: 'Approved in Agent 4', documented: 'Documented (workbook)', 'name-match': 'Name match only', ambiguous: 'Ambiguous', missing: 'Not mapped' };
-const MAP_TONE: Record<MappingStatus, 'ok' | 'info' | 'warn' | 'bad'> = { approved: 'ok', documented: 'info', 'name-match': 'warn', ambiguous: 'warn', missing: 'bad' };
+const MAP_LABEL: Record<MappingStatus, string> = { approved: 'Approved in Agent 4', documented: 'Documented (workbook)', 'name-match': 'Name match only', ambiguous: 'Ambiguous', missing: 'Not mapped', suggested: 'Simulated suggestion' };
+const MAP_TONE: Record<MappingStatus, 'ok' | 'info' | 'warn' | 'bad'> = { approved: 'ok', documented: 'info', 'name-match': 'warn', ambiguous: 'warn', missing: 'bad', suggested: 'info' };
 
 export function MappingBadge({ status, note }: { status: MappingStatus; note?: string }) {
   return <span title={note}><Badge tone={MAP_TONE[status]}>{MAP_LABEL[status]}</Badge></span>;

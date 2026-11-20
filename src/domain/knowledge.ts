@@ -423,6 +423,54 @@ function scopeAndGlossaryChunks(model: WorkbookModel): KnowledgeChunk[] {
   return out;
 }
 
+/**
+ * What the CrisMac SQL -> TRAQ rule conversion engine (`domain/ruleConversion/translate.ts`) actually translates and
+ * flags. Not workbook text: this documents the conversion engine's own rule-based behaviour, each item evidenced by
+ * a live FPM_DA_RULES expression, a dd_export draft, or the sample procedure SQL (see `translate.ts`'s header
+ * comment and issue messages for the same citations). Nothing here is invented or AI-generated.
+ */
+function traqConversionChunks(): KnowledgeChunk[] {
+  const route = '/rules?tab=convert';
+  const src = (label: string): SourceRef => ({ kind: 'rule', label, route });
+  return [
+    {
+      id: 'conv:functions', kind: 'rule', title: 'CrisMac T-SQL to TRAQ function/operator translation',
+      text: [
+        '**The CrisMac SQL -> TRAQ rule conversion engine** rewrites a fixed set of T-SQL constructs into TRAQ Derived Attribute syntax, evidenced by a live FPM_DA_RULES expression or a dd_export draft:',
+        '- `ISNULL(a,b)` / `COALESCE(...)` -> `COALESCE(...)`.',
+        '- `a IS NULL` / `IS NOT NULL` -> `ISEMPTY(a)` / `ISNOTEMPTY(a)`.',
+        '- `a IN (...)` / `NOT IN (...)` -> `(a)IN[...]` / `(a)NOTIN[...]`.',
+        '- `a BETWEEN lo AND hi` -> `(a)BETWEEN[lo,hi]` for non-date columns; kept as `AND(a>=lo,a<=hi)` and flagged for dates, since native BETWEEN on dates is not confirmed safe.',
+        '- `a LIKE \'%x%\'` / `\'x%\'` / `\'%x\'` -> `CONTAINS(a,"x")` / `BEGINSWITH(a,"x")` / `ENDSWITH(a,"x")`; any other wildcard shape -> `REGEX(a,"...")`, flagged since the escaping rule is unevidenced.',
+        '- `LTRIM(RTRIM(a))` -> `TRIM(a)`.',
+        '- `CAST`/`CONVERT` to a date type -> `TODATE(a)`; to anything else, the cast is dropped and flagged (TRAQ types the result through the rule\'s own Data Type field).',
+        '- `DATEDIFF(DAY,earlier,later)` -> `DATEDIFF(later,earlier,"d")` - TRAQ\'s argument order is reversed from T-SQL\'s, taken from the live IS_PUI_NPA rule in FPM_DA_RULES. Only day differences ("d") are evidenced; other date parts are flagged.',
+        '- `DATEADD(DAY,n,d)` -> `ADDDAY(d,"n")` for a literal day offset; other date parts are kept as written and flagged, since TRAQ\'s ADDDAY only documents a whole-day offset.',
+        '- `DATEPART(part,date)` -> `DATEPART(date,"part")` (argument order reversed) - always flagged, because TRAQ\'s part-name vocabulary for this function is not documented anywhere in the workbook or the rule-engine\'s own catalog.',
+        '- `SUBSTRING(v,start,len)` -> `SUBSTR(v,start,len)` (name only, same argument order). `UPPER`, `LOWER`, `LEN`, `ROUND`, `REPLACE` and `CONCAT` already use the same name and argument order in both languages.',
+        '- `FLOOR(v)`/`CEILING(v)` are kept as written and flagged: TRAQ\'s `FLOOR`/`CEIL` document a second argument whose meaning is not evidenced, so the one-argument form is not auto-converted.',
+        '- Aggregates (`SUM`, `COUNT`, `AVG`, `MAX`, `MIN`, `STRING_AGG`), `GETDATE()`/`SYSDATETIME()`/`CURRENT_TIMESTAMP`, and any function with no documented TRAQ form are flagged rather than guessed at.',
+        'Anything not on this list is kept as written and flagged for manual review - the engine never invents a translation it cannot cite.',
+      ].join('\n'),
+      keywords: ['traq syntax', 'function', 'operator', 'convert', 'translate', 'datediff', 'dateadd', 'datepart', 'like', 'between', 'in', 'substring', 'coalesce', 'rule conversion', 'derived attribute'],
+      entities: [], origin: 'derived',
+      sources: [src('CrisMac SQL -> TRAQ rules: function/operator translation')],
+    },
+    {
+      id: 'conv:dates-and-params', kind: 'rule', title: 'TRAQ date-comparison rule and the @TIMEKEY business-date parameter',
+      text: [
+        '**Two CrisMac-to-TRAQ conventions the conversion engine checks for:**',
+        '- Direct comparison of two date-typed TRAQ columns (`==`, `!=`, `<`, `>`, `<=`, `>=`) is flagged: the TRAQ Derived Attribute rule engine accepts it when the rule is saved but can fail when the rule actually runs. Dates must be compared through `DATEDIFF(...)`, typically guarded by `ISEMPTY(...)`/`COALESCE(...)`.',
+        '- CrisMac\'s run-date parameter (`@TIMEKEY` / `@PROCESSDATE` in the sample procedures, e.g. `PRO.DPD_Calculation`) has no literal TRAQ equivalent; the conversion engine\'s default mapping writes it as `"{ENTITY}"."var"."BUSINESS_DATE"`, TRAQ\'s run-date variable (see FPM_DA_RULES row 6). Any other CrisMac parameter with no configured value or TRAQ expression is left as an `[[PARAM ...]]` placeholder that blocks export, rather than being guessed.',
+        '- SCD2 effective/record-date boundaries (`EffectiveFromTimeKey`/`EffectiveToTimeKey` in CrisMac, `RECORD_START_DATE`/`RECORD_END_DATE` in TRAQ) close differently: CrisMac closes the replaced row the day *before* the new one starts (inclusive end); TRAQ closes on the business date itself and reads `start <= d < end` (exclusive end). The conversion engine flags a comparison that touches one of these columns as an informational note - it does not shift the boundary automatically, since that depends on the specific rule.',
+      ].join('\n'),
+      keywords: ['business date', 'timekey', 'processdate', 'scd2', 'record_start_date', 'record_end_date', 'effectivetotimekey', 'date comparison', 'datediff', 'parameter'],
+      entities: ['BUSINESS_DATE', 'RECORD_START_DATE', 'RECORD_END_DATE'], origin: 'derived',
+      sources: [src('CrisMac SQL -> TRAQ rules: date handling and parameters')],
+    },
+  ];
+}
+
 function platformChunks(topics: PlatformTopic[]): KnowledgeChunk[] {
   return topics.map((p) => ({
     id: `platform:${p.id}`, kind: 'platform' as const, title: p.title, text: p.text, keywords: p.keywords, entities: [], origin: 'documentation' as const,
@@ -480,7 +528,7 @@ export function buildKnowledge(
   const procs = extras.procs ?? [];
   return memo(model, 'knowledge', () => [
     ...tableChunks(model), ...columnChunks(model), ...unmappedChunks(model), ...lineageChunks(model), ...mappingChunks(model),
-    ...procedureChunks(model, new Set(procs.map((p) => p.name.toLowerCase()))), ...procSourceChunks(procs, extras.traces ?? []), ...ruleChunks(model), ...relationshipChunks(model), ...scopeAndGlossaryChunks(model),
+    ...procedureChunks(model, new Set(procs.map((p) => p.name.toLowerCase()))), ...procSourceChunks(procs, extras.traces ?? []), ...ruleChunks(model), ...traqConversionChunks(), ...relationshipChunks(model), ...scopeAndGlossaryChunks(model),
     ...platformChunks(extras.platform), ...extras.docs.flatMap(docChunks),
   ]);
 }

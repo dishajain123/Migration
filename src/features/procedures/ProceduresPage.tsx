@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Select, SimulatedBadge, Tabs } from '@/components/ui';
 import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { noResult, useAsync } from '@/hooks/useAsync';
@@ -19,11 +20,13 @@ export function ProceduresPage() {
     <div>
       <PageHeader
         title="Agent 3 · Procedure & Business Logic Analyzer"
-        description="The workbook itself contains no SQL bodies. The 14 sample CrisMac stored procedures supplied beside it are analysed on the Source procedures tab, with the columns they assign traced to the TRAQ model. The other tabs catalogue what the workbook references, show its documented expressions, and analyse pasted SQL."
+        description="Analyse the 14 sample CrisMac procedures' SQL, catalogue what the workbook references, and run the SQL analyzer on pasted SQL."
+        right={<InfoTip title="What's SQL and what's names-only" align="right">
+          <span><b>Source procedures:</b> the 14 sample procedures have real SQL, parsed by pattern matching (not AI), with columns traced to the TRAQ model.</span>
+          <span><b>Everything else:</b> the workbook gives names and remarks only - no operation is asserted beyond keywords in the surrounding text.</span>
+          <span><b>Summaries:</b> template text, labelled Simulated, never AI-generated unless you run the AI insight panel.</span>
+        </InfoTip>}
       />
-      <div className="mb-3 rounded-md border border-border bg-warnbg p-3 text-xs text-warn">
-        Only the 14 sample procedures have SQL. For every other object the workbook gives names and remarks, so no operation is asserted beyond keywords in the surrounding text. SQL structure and TRAQ links are derived by pattern matching (not AI); template summaries are labelled Simulated.
-      </div>
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'sources', label: 'Source procedures (SQL)' }, { id: 'catalogue', label: 'Referenced objects' }, { id: 'expressions', label: 'Documented expressions' }, { id: 'sql', label: 'SQL analyzer' }]} />
       <div className="mt-3">
         {tab === 'sources' && <SourceProcedures />}
@@ -75,6 +78,9 @@ function Catalogue() {
 
 function ObjectDetail({ obj, analysed, onToggle }: { obj: ProcObject; analysed: boolean; onToggle: () => void }) {
   const explain = useAsync(() => services.procedures.explain(obj.id), [obj.id]);
+  const sources = useAsync(() => services.procedures.listSources(), []);
+  const short = obj.name.replace(/^PRO\./i, '').toLowerCase();
+  const hasSql = !!sources.data?.some((s) => s.name.toLowerCase() === short);
   return (
     <div className="space-y-3">
       <Card>
@@ -82,7 +88,7 @@ function ObjectDetail({ obj, analysed, onToggle }: { obj: ProcObject; analysed: 
           right={<Button size="sm" variant={analysed ? 'outline' : 'default'} onClick={onToggle}>{analysed ? 'Unmark analysed' : 'Mark as analysed'}</Button>} />
         <div className="grid gap-3 p-3 text-xs md:grid-cols-2">
           <div><div className="mb-1 font-medium">Documented operations (keyword match)</div>{obj.operations.length ? <div className="flex flex-wrap gap-1">{obj.operations.map((o) => <Badge key={o}>{o}</Badge>)}</div> : <span className="text-muted">None stated</span>}</div>
-          <div><div className="mb-1 font-medium">SQL body in workbook</div><Badge tone="warn">Not provided in workbook</Badge></div>
+          <div><div className="mb-1 font-medium">SQL body</div>{hasSql ? <Badge tone="ok">Provided - see Source procedures tab</Badge> : <Badge tone="warn">Not provided in workbook</Badge>}</div>
           <div><div className="mb-1 font-medium">Tables mentioned alongside</div><div className="font-mono text-muted">{obj.mentionedTables.join(', ') || '—'}</div></div>
           <div><div className="mb-1 font-medium">Related objects</div><div className="font-mono text-muted">{obj.related.join(', ') || '—'}</div></div>
         </div>

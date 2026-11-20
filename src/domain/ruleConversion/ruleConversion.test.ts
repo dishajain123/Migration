@@ -19,6 +19,9 @@ const CSV = [
   'FCT_PRODUCT_MASTER,5,OVERDUE_DPD,NUMBER,,CrisMac,PRO.AccountCal,DPD_Overdue,-,DERIVED,Days since OVERDUE_DATE + 1.,,',
   'FCT_PRODUCT_MASTER,6,OVERDUE_DATE,DATE,,CrisMac,PRO.AccountCal,OverDueSinceDt,-,DERIVED,Oldest unpaid due.,,',
   'FCT_PRODUCT_MASTER,7,DATA_SOURCE_ID,NUMBER,,CrisMac,PRO.AccountCal,SourceAlt_Key,-,DIRECT,,,',
+  // A TRAQ-only column (no CrisMac source) - must never be offered as a Simulated suggestion target.
+  'FCT_PRODUCT_MASTER,8,TRAQ TABLE,TRAQ COLUMN,DATATYPE,NULL,,,,,,,',
+  'FCT_PRODUCT_MASTER,9,FCT_PRODUCT_MASTER,SURROGATE_KEY,NUMBER,NOT NULL,,,,,,,',
 ].join('\n');
 const model = parseWorkbookCsv(CSV);
 
@@ -92,9 +95,9 @@ describe('expression translation', () => {
     expect(tr('a = 1 AND (b <> 2 OR c IS NOT NULL)').text).toBe('AND("T"."A"==1,OR("T"."B"!=2,ISNOTEMPTY("T"."C")))');
   });
 
-  it('expands constructs with no TRAQ keyword and pushes NOT inwards', () => {
-    expect(tr('a BETWEEN 1 AND 5').text).toBe('AND("T"."A">=1,"T"."A"<=5)');
-    expect(tr("a NOT IN ('x','y')").text).toBe('AND("T"."A"!="x","T"."A"!="y")');
+  it('writes BETWEEN and NOT IN as native TRAQ operators and pushes NOT inwards', () => {
+    expect(tr('a BETWEEN 1 AND 5').text).toBe('("T"."A")BETWEEN[1,5]');
+    expect(tr("a NOT IN ('x','y')").text).toBe('("T"."A")NOTIN["x","y"]');
     expect(tr('NOT (a = 1 OR b IS NULL)').text).toBe('AND("T"."A"!=1,ISNOTEMPTY("T"."B"))');
     expect(tr('LTRIM(RTRIM(a))').text).toBe('TRIM("T"."A")');
   });
@@ -105,16 +108,83 @@ describe('expression translation', () => {
     expect(r.issues.some((i) => i.code === 'DATEDIFF_ORDER')).toBe(true);
   });
 
+  it('translates LIKE wildcard shapes to CONTAINS/BEGINSWITH/ENDSWITH/REGEX', () => {
+    expect(tr("a LIKE '%X%'").text).toBe('CONTAINS("T"."A","X")');
+    expect(tr("a LIKE 'X%'").text).toBe('BEGINSWITH("T"."A","X")');
+    expect(tr("a LIKE '%X'").text).toBe('ENDSWITH("T"."A","X")');
+    const mixed = tr("a LIKE 'X%Y'");
+    expect(mixed.text).toBe('REGEX("T"."A","X%Y")');
+    expect(mixed.issues.some((i) => i.code === 'LIKE_REGEX')).toBe(true);
+    const negated = tr("a NOT LIKE '%X%'");
+    expect(negated.text).toBe('NOT(CONTAINS("T"."A","X"))');
+    expect(negated.issues.some((i) => i.code === 'LIKE_NEGATED')).toBe(true);
+  });
+
+  it('translates date-math and arity-mismatched functions, flagging what is unverified', () => {
+    expect(tr('DATEADD(DAY, 5, a)').text).toBe('ADDDAY("T"."A","5")');
+    const part = tr('DATEADD(MONTH, 1, a)');
+    expect(part.text).toBe('DATEADD(MONTH,1,"T"."A")');
+    expect(part.issues.some((i) => i.code === 'ADDDAY_UNVERIFIED')).toBe(true);
+    const dp = tr('DATEPART(YEAR, a)');
+    expect(dp.text).toBe('DATEPART("T"."A","year")');
+    expect(dp.issues.some((i) => i.code === 'DATEPART_UNVERIFIED')).toBe(true);
+    const fl = tr('FLOOR(a)');
+    expect(fl.text).toBe('FLOOR("T"."A")');
+    expect(fl.issues.some((i) => i.code === 'FUNCTION_ARITY')).toBe(true);
+  });
+
+  it('passes through same-name/same-order functions without a false-positive warning', () => {
+    for (const sql of ['SUBSTRING(a,1,2)', 'UPPER(a)', 'LOWER(a)', 'LEN(a)', 'ROUND(a,2)', "REPLACE(a,'x','y')", 'CONCAT(a,b)']) {
+      const r = tr(sql);
+      expect(r.issues.some((i) => i.code === 'FUNCTION_UNVERIFIED')).toBe(false);
+    }
+    expect(tr('SUBSTRING(a,1,2)').text).toBe('SUBSTR("T"."A",1,2)');
+  });
+
   it('flags what it cannot translate instead of guessing', () => {
-    const r = tr("a LIKE 'X%' OR EXISTS (SELECT 1 FROM t)");
+    const r = tr('a LIKE X OR EXISTS (SELECT 1 FROM t)');
     expect(r.text).toContain('[[UNSUPPORTED');
-    expect(r.issues.filter((i) => i.severity === 'error').map((i) => i.code).sort()).toEqual(['LIKE', 'UNSUPPORTED']);
+    expect(r.issues.filter((i) => i.severity === 'error').map((i) => i.code).sort()).toEqual(['LIKE_DYNAMIC', 'UNSUPPORTED']);
     expect(tr('@X + 1').text).toBe('[[PARAM @X]]+1');
   });
 
   it('folds comparisons on parameters with a known value', () => {
     const e = foldConstants(parseSqlExpr('CASE WHEN @TIMEKEY > 26267 THEN 1 ELSE 2 END'), { '@TIMEKEY': '26400' });
     expect(translate(e, ctx).text).toBe('1');
+  });
+
+  it('flags a direct comparison of two date-typed TRAQ columns (TRAQ requires DATEDIFF)', () => {
+    const dateCtx: TranslateContext = {
+      entity: 'T',
+      column: (parts) => ({
+        text: `"T"."${parts[parts.length - 1]}"`,
+        resolution: { crismacTable: 'T', crismacColumn: parts[parts.length - 1], status: 'documented', candidates: [], note: '', chosen: { table: 'T', column: parts[parts.length - 1], dataType: 'DATE', basis: 'workbook' } },
+      }),
+      param: (name) => ({ name, status: 'unresolved', value: '', note: '' }),
+    };
+    const r = translate(parseSqlExpr('a = b'), dateCtx);
+    expect(r.issues.some((i) => i.code === 'DATE_COMPARISON')).toBe(true);
+  });
+
+  it('flags an SCD2 effective/record-date boundary comparison as an informational note', () => {
+    const scd2Ctx: TranslateContext = {
+      entity: 'T',
+      column: (parts) => ({ text: `"T"."${parts[parts.length - 1]}"`, resolution: null }),
+      param: (name) => ({ name, status: 'unresolved', value: '', note: '' }),
+    };
+    const r = translate(parseSqlExpr('EffectiveToTimeKey <= timekey'), scd2Ctx);
+    expect(r.issues.some((i) => i.code === 'SCD2_BOUNDARY')).toBe(true);
+  });
+
+  it('does not flag a comparison when column types are unknown', () => {
+    expect(tr('a = b').issues.some((i) => i.code === 'DATE_COMPARISON')).toBe(false);
+  });
+
+  it('flags ISEMPTY/ISNOTEMPTY/DATEDIFF when their argument is a computed expression, not a bare column', () => {
+    expect(tr('a IS NULL').issues.some((i) => i.code === 'ARG_NOT_SIMPLE')).toBe(false);
+    expect(tr('(a + 1) IS NULL').issues.some((i) => i.code === 'ARG_NOT_SIMPLE')).toBe(true);
+    expect(tr('DATEDIFF(DAY, a, b)').issues.some((i) => i.code === 'ARG_NOT_SIMPLE')).toBe(false);
+    expect(tr('DATEDIFF(DAY, a + 1, b)').issues.some((i) => i.code === 'ARG_NOT_SIMPLE')).toBe(true);
   });
 });
 
@@ -136,6 +206,25 @@ describe('mapping resolution', () => {
 
   it('reports a missing mapping instead of inventing one', () => {
     expect(resolveColumn(model, buildMappingIndex(model, []), 'ACCOUNTCAL', 'NO_SUCH').status).toBe('missing');
+  });
+
+  it('falls back to a Simulated suggestion scored against the TRAQ data model when nothing else matches', () => {
+    const r = resolveColumn(model, buildMappingIndex(model, []), 'ACCOUNTCAL', 'DPD_Overdue_Days');
+    expect(r.status).toBe('suggested');
+    expect(r.chosen).toMatchObject({ table: 'FCT_PRODUCT_MASTER', column: 'OVERDUE_DPD', basis: 'agent4-suggestion' });
+    expect(r.chosen?.confidence).toBeGreaterThan(0);
+    expect(r.note).toContain('Simulated suggestion');
+  });
+
+  it('does not suggest a column whose name overlap is too weak (stays missing)', () => {
+    expect(resolveColumn(model, buildMappingIndex(model, []), 'ACCOUNTCAL', 'SOME_UNRELATED_THING').status).toBe('missing');
+  });
+
+  it('never suggests a TRAQ-only column as a mapping target, even with strong name overlap', () => {
+    // SURROGATE_KEY has no CrisMac source (traqOnly) and would otherwise be the only candidate above threshold.
+    const r = resolveColumn(model, buildMappingIndex(model, []), 'ACCOUNTCAL', 'Surrogate_Key_Number');
+    expect(r.status).toBe('missing');
+    expect(r.chosen).toBeNull();
   });
 });
 
@@ -171,6 +260,21 @@ describe('convertProcedures', () => {
     expect(r.status).toBe('failed');
     expect(r.confidence.value).toBe(0);
     expect(res.stats.failed).toBe(1);
+  });
+
+  it('shows a read column resolved only by Agent 4\'s suggestion heuristic, flagged, not as [[UNMAPPED ...]]', () => {
+    const sugProc = analyzeProcSql({ name: 'Sug_Test', folder: 'test', file: 's.sql' }, `
+      CREATE PROCEDURE [PRO].[Sug_Test] AS
+      BEGIN
+        UPDATE A SET A.DPD_Overdue = A.DPD_Overdue_Days FROM ##AccountCal A
+      END`);
+    const r = convertProcedures(model, { procedures: [sugProc], reviewed: [], settings: settings() }).rules.find((x) => x.crismacColumn === 'DPD_OVERDUE')!;
+    expect(r.references.some((x) => x.status === 'suggested')).toBe(true);
+    expect(r.traq.expression).toBe('"FCT_PRODUCT_MASTER"."OVERDUE_DPD"');
+    expect(r.traq.expression).not.toContain('[[');
+    expect(r.issues.some((i) => i.code === 'REF_SUGGESTED' && i.severity === 'error')).toBe(true);
+    expect(r.status).toBe('needs-review');
+    expect(validateForExport(templateById('dd-export'), [r], {}, '2026-04-01').some((c) => c.message.includes("Simulated suggestion heuristic"))).toBe(true);
   });
 });
 

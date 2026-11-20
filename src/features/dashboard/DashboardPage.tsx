@@ -1,6 +1,7 @@
 import { ArrowRight, CheckCircle2, Circle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Card, CardHeader, OriginBadge, PageHeader, Progress, SimulatedBadge, Stat } from '@/components/ui';
 import { computeReadiness } from '@/domain/dashboard';
 import { useAsync } from '@/hooks/useAsync';
@@ -20,8 +21,15 @@ export function DashboardPage() {
     <div>
       <PageHeader
         title="Migration Overview"
-        description="Everything on this page is computed from the workbook CSV, from the Simulated mapping heuristic (labelled), or from your own review actions (stored in this browser)."
-        right={<OriginBadge meta={state.meta} />}
+        description="Progress across all five agents, computed from the workbook and your review decisions."
+        right={<span className="flex items-center gap-2">
+          <InfoTip title="Where these numbers come from" align="right">
+            <span><b>Workbook:</b> counted directly from the CSV - tables, mappings, coverage, rules.</span>
+            <span><b>Simulated:</b> the mapping-suggestion heuristic's output, never a workbook fact.</span>
+            <span><b>Stored in this browser:</b> your own review decisions (approvals, manual mappings, analysed procedures) - not synced anywhere else.</span>
+          </InfoTip>
+          <OriginBadge meta={state.meta} />
+        </span>}
       />
       <AsyncView state={state}>
         {(s) => {
@@ -119,13 +127,13 @@ export function DashboardPage() {
                 <CardHeader title="Migration workflow" subtitle="Work through the five agents in order; progress is stored in this browser" />
                 <div className="grid gap-2 p-3 md:grid-cols-5">
                   {steps.map((st, i) => (
-                    <Link key={st.to} to={st.to} className="group rounded-md border border-border p-3 hover:bg-surface2">
+                    <Link key={st.to} to={st.to} className="group rounded-md border border-border p-3 hover:bg-surface2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
                       <div className="flex items-center gap-1.5 text-xs text-muted">
                         {st.done ? <CheckCircle2 size={14} className="text-ok" /> : <Circle size={14} />} Step {i + 1}
                       </div>
                       <div className="mt-1 text-sm font-medium">{st.label}</div>
                       <div className="mt-0.5 text-xs text-muted">{st.detail}</div>
-                      <div className="mt-2 flex items-center gap-1 text-xs text-primary opacity-0 group-hover:opacity-100">Open <ArrowRight size={12} /></div>
+                      <div className="mt-2 flex items-center gap-1 text-xs text-primary opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">Open <ArrowRight size={12} /></div>
                     </Link>
                   ))}
                 </div>

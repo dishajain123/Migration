@@ -155,7 +155,7 @@ function Steps({ proc }: { proc: ProcSource }) {
               <div className="flex flex-wrap items-center gap-1"><Badge tone="primary">{s.type}</Badge><span className={`${mono} break-all`}>{s.type === 'EXEC' ? s.callee : s.table}</span>{s.tableKind === 'local-temp' && <Badge>temp</Badge>}{s.housekeeping && <Badge>bookkeeping</Badge>}</div>
               {s.columns.length > 0 && <div className="text-[11px] text-muted">{s.columns.slice(0, 6).map((c) => c.name).join(', ')}{s.columns.length > 6 ? ` +${s.columns.length - 6} more` : ''}</div>}
             </div>) },
-          { key: 'g', header: 'Applies when', render: (s) => <span className="max-w-xs text-xs">{s.guard || <span className="text-muted">always</span>}</span> },
+          { key: 'g', header: 'Applies when', render: (s) => <span className="block max-w-xs whitespace-pre-wrap break-words text-xs">{s.guard || <span className="text-muted">always</span>}</span> },
           { key: 'd', header: 'Detail', render: (s) => (
             <details className="max-w-2xl text-xs">
               <summary className="cursor-pointer text-primary">Logic and SQL</summary>

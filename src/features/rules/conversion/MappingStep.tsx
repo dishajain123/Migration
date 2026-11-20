@@ -25,16 +25,17 @@ export function MappingStep({ rules, onNext }: { rules: ConvertedRule[]; onNext:
       <Card>
         <CardHeader
           title={<span className="flex items-center gap-1.5">3. CrisMac columns mapped to TRAQ <InfoTip title="How columns are mapped">
-            <span>Every column a rule writes or reads is looked up, in this order: manual mappings and approved suggestions from Agent 4, then documented workbook mappings, then a TRAQ column with the same name (unconfirmed).</span>
-            <span>Rules are rewritten with the TRAQ names. A column that is not mapped stays as a [[UNMAPPED ...]] placeholder and blocks export.</span>
+            <span><b>Lookup order:</b> Agent 4 manual mapping → approved suggestion → documented workbook mapping → same-name TRAQ column → Agent 4's heuristic (Simulated, lowest confidence).</span>
+            <span><b>Suggested:</b> shows the guessed column in the expression, but still blocks export until you confirm it with Map.</span>
+            <span><b>Not mapped:</b> stays as a <code>[[UNMAPPED ...]]</code> placeholder and also blocks export.</span>
           </InfoTip></span>}
-          subtitle={`${rows.length} distinct columns · ${count('approved') + count('documented')} mapped · ${count('name-match')} name match · ${count('ambiguous')} ambiguous · ${count('missing')} not mapped`}
+          subtitle={`${rows.length} distinct columns · ${count('approved') + count('documented')} mapped · ${count('name-match')} name match · ${count('suggested')} Simulated suggestion · ${count('ambiguous')} ambiguous · ${count('missing')} not mapped`}
         />
         <div className="flex flex-wrap gap-2 border-b border-border p-3">
           <Input placeholder="Search CrisMac or TRAQ column..." value={q} onChange={(e) => setQ(e.target.value)} className="w-72" aria-label="Search columns" />
           <Select value={status} onChange={(e) => setStatus(e.target.value as MappingStatus | '')} aria-label="Filter by mapping status">
             <option value="">All statuses</option>
-            <option value="missing">Not mapped</option><option value="ambiguous">Ambiguous</option><option value="name-match">Name match only</option>
+            <option value="missing">Not mapped</option><option value="suggested">Simulated suggestion</option><option value="ambiguous">Ambiguous</option><option value="name-match">Name match only</option>
             <option value="documented">Documented (workbook)</option><option value="approved">Approved in Agent 4</option>
           </Select>
         </div>
@@ -45,7 +46,11 @@ export function MappingStep({ rules, onNext }: { rules: ConvertedRule[]; onNext:
             { key: 'u', header: 'Used by', render: (r) => <span className="text-xs text-muted" title={r.rules.join('\n')}>{r.writtenBy ? `written by ${r.writtenBy}` : ''}{r.writtenBy && r.readBy ? ', ' : ''}{r.readBy ? `read by ${r.readBy}` : ''} rule(s)</span> },
             { key: 's', header: 'Status', render: (r) => <MappingBadge status={r.resolution.status} note={r.resolution.note} /> },
             { key: 't', header: 'TRAQ column', render: (r) => r.resolution.chosen
-              ? <span className="font-mono text-xs" title={r.resolution.candidates.length > 1 ? `Candidates:\n${r.resolution.candidates.map((c) => `${c.table}.${c.column} (${c.basis})`).join('\n')}` : r.resolution.note}>{r.resolution.chosen.table}.{r.resolution.chosen.column}{r.resolution.candidates.length > 1 && <span className="ml-1 text-muted">+{r.resolution.candidates.length - 1}</span>}</span>
+              ? <span className="font-mono text-xs" title={r.resolution.candidates.length > 1 ? `Candidates:\n${r.resolution.candidates.map((c) => `${c.table}.${c.column} (${c.basis})`).join('\n')}` : r.resolution.note}>
+                  {r.resolution.chosen.table}.{r.resolution.chosen.column}
+                  {r.resolution.candidates.length > 1 && <span className="ml-1 text-muted">+{r.resolution.candidates.length - 1}</span>}
+                  {r.resolution.status === 'suggested' && <span className="ml-1 text-muted">({r.resolution.chosen.confidence ?? '?'}% Simulated)</span>}
+                </span>
               : <span className="text-xs text-muted">Not provided in workbook or Agent 4</span> },
             { key: 'a', header: '', render: (r) => (
               <div className="flex justify-end gap-1">

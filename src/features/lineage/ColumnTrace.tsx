@@ -41,9 +41,11 @@ export function ColumnTrace({ table, initialColumn = '' }: { table: string; init
   );
 }
 
+const MAX_INDENT_DEPTH = 4;
+
 function TraceTree({ node, depth }: { node: TraceNode; depth: number }) {
   return (
-    <div className={depth ? 'ml-4 border-l border-border pl-3' : ''}>
+    <div className={depth === 0 ? '' : depth <= MAX_INDENT_DEPTH ? 'ml-4 border-l border-border pl-3' : 'border-l border-border pl-1'}>
       <div className="py-1 text-xs">
         <span className="font-mono">{node.table}.{node.column}</span>{' '}
         {node.mapType !== undefined && <Badge>{node.mapType || '—'}</Badge>}

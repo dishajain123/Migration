@@ -105,6 +105,42 @@ export function suggestionsForTable(model: WorkbookModel, tableName: string): Su
   });
 }
 
+/**
+ * Last-resort fallback for the rule conversion resolver (`ruleConversion/resolve.ts`): given a CrisMac column with
+ * no workbook/Agent-4/name-match mapping, scores every in-scope TRAQ column by the same name-token + type-family
+ * heuristic as `suggestionsForTable` (same formula, same 0.35 threshold - still Simulated, still arbitrary demo
+ * values). Unlike `suggestionsForTable`, this searches the whole TRAQ data model, not just a table's unfed pool,
+ * because the caller is an arbitrary CrisMac column from procedure SQL, not one already listed in the workbook's
+ * "no TRAQ target" sheets.
+ */
+export function suggestTraqColumnsForColumn(
+  model: WorkbookModel, crismacColumn: string, preferTable?: string,
+): { table: string; column: string; dataType: string; confidence: number; ambiguous: boolean; reasons: string[] }[] {
+  return memo(model, `sugg:col:${crismacColumn}:${preferTable ?? ''}`, () => {
+    const tt = tokens(crismacColumn);
+    const tn = norm(crismacColumn);
+    const scored = model.tables
+      .filter((t) => t.system === 'TRAQ' && isLoadPathTable(t))
+      .flatMap((t) => coverageColumns(t).map((c) => ({ table: t.name, column: c.name, dataType: c.dataType, score: 0, exact: 0 })))
+      .map((cand) => {
+        const ct = tokens(cand.column);
+        const exact = tn === norm(cand.column) ? 1 : 0;
+        const score = 0.6 * jaccard(tt, ct) + 0.25 * 0.5 + 0.15 * exact;
+        return { ...cand, score, exact };
+      })
+      .filter((x) => x.score >= 0.35)
+      .sort((a, b) => b.score - a.score || (preferTable ? Number(b.table === preferTable) - Number(a.table === preferTable) : 0));
+    if (scored.length === 0) return [];
+    const best = scored[0];
+    const second = scored.find((x) => x !== best && (x.table !== best.table || x.column !== best.column));
+    const ambiguous = !!second && best.score - second.score < 0.05;
+    return [{
+      table: best.table, column: best.column, dataType: best.dataType, confidence: Math.min(99, Math.round(best.score * 100)), ambiguous,
+      reasons: [`Name token overlap ${(jaccard(tt, tokens(best.column)) * 100).toFixed(0)}% with ${best.table}.${best.column}`, best.exact ? 'Names identical (ignoring case/underscores)' : 'No CrisMac type available, so the type check could not run'],
+    }];
+  });
+}
+
 export function targetSummaries(model: WorkbookModel): TargetSummary[] {
   return memo(model, 'targets', () => {
     const out: TargetSummary[] = [];

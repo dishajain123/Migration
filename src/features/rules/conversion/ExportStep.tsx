@@ -126,11 +126,14 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
               <tbody>
                 {inScope.slice(0, PREVIEW_ROWS).map((r) => (
                   <tr key={r.id} className="border-t border-border align-top">
-                    {templateRow(template, effectiveFields(r, edits[r.id], batch)).map((v, i) => (
-                      <td key={template.columns[i].header} className={cn('max-w-[28rem] px-3 py-1.5', i === template.columns.findIndex((c) => c.field === 'expression') && 'font-mono text-[10.5px]', !v && template.columns[i].mandatory && 'bg-badbg')}>
-                        <span className="line-clamp-3 break-all" title={v}>{v || (template.columns[i].mandatory ? 'missing' : '')}</span>
-                      </td>
-                    ))}
+                    {templateRow(template, effectiveFields(r, edits[r.id], batch)).map((v, i) => {
+                      const wide = ['expression', 'explanation', 'crismac', 'reads'].includes(template.columns[i].field);
+                      return (
+                        <td key={template.columns[i].header} className={cn('px-3 py-1.5', wide ? 'max-w-[28rem]' : 'whitespace-nowrap', i === template.columns.findIndex((c) => c.field === 'expression') && 'font-mono text-[10.5px]', !v && template.columns[i].mandatory && 'bg-badbg')}>
+                          <span className={wide ? 'line-clamp-3 break-all' : ''} title={v}>{v || (template.columns[i].mandatory ? 'missing' : '')}</span>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

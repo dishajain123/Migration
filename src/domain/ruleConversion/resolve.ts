@@ -2,6 +2,7 @@ import type { ColumnResolution, MappingBasis, MappingCandidate, MappingStatus, R
 import { memo } from '../memo';
 import { traqNameMatches } from '../procTrace';
 import { feedingMappings, tableByName } from '../selectors';
+import { suggestTraqColumnsForColumn } from '../suggest';
 
 /*
  * CrisMac column -> TRAQ column, using only mappings that already exist in the project:
@@ -73,13 +74,14 @@ export function buildMappingIndex(model: WorkbookModel, reviewed: ReviewedMappin
 }
 
 const STATUS: Record<MappingBasis, MappingStatus> = {
-  'agent4-manual': 'approved', 'agent4-approved': 'approved', workbook: 'documented', 'name-match': 'name-match',
+  'agent4-manual': 'approved', 'agent4-approved': 'approved', workbook: 'documented', 'name-match': 'name-match', 'agent4-suggestion': 'suggested',
 };
 const BASIS_TEXT: Record<MappingBasis, string> = {
   'agent4-manual': 'manual mapping entered in Agent 4',
   'agent4-approved': 'suggestion approved in Agent 4',
   workbook: 'documented workbook mapping',
   'name-match': 'same column name in TRAQ (unconfirmed)',
+  'agent4-suggestion': "Agent 4's matching heuristic (Simulated, not yet mapped)",
 };
 
 /**
@@ -107,7 +109,16 @@ export function resolveColumn(
     if (candidates.length) tier = 'name-match';
   }
   if (!tier) {
-    return { crismacTable, crismacColumn, status: 'missing', chosen: null, candidates: [], note: 'No Agent 4 or workbook mapping, and no TRAQ column with this name.' };
+    const sug = suggestTraqColumnsForColumn(model, crismacColumn, preferTable);
+    if (sug.length) {
+      const s = sug[0];
+      const candidate: MappingCandidate = { table: s.table, column: s.column, dataType: s.dataType, basis: 'agent4-suggestion', confidence: s.confidence };
+      return {
+        crismacTable, crismacColumn, chosen: candidate, candidates: [candidate], status: 'suggested',
+        note: `Simulated suggestion from Agent 4's matching heuristic (${s.confidence}% confidence against the TRAQ data model)${s.ambiguous ? '; another candidate scored nearly as high' : ''}. Not a mapping yet - approve or replace it in Agent 4 before export.`,
+      };
+    }
+    return { crismacTable, crismacColumn, status: 'missing', chosen: null, candidates: [], note: 'No Agent 4 or workbook mapping, no TRAQ column with this name, and no Simulated suggestion scored high enough to propose one.' };
   }
   const tmap = tableByName(model);
   const ordered = [...candidates].sort((a, b) => (LAYER_RANK[tmap.get(a.table)?.layer ?? ''] ?? 9) - (LAYER_RANK[tmap.get(b.table)?.layer ?? ''] ?? 9) || a.table.localeCompare(b.table));
