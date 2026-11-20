@@ -64,7 +64,8 @@ export function createAgentAi(deps: Deps, gateway: AiGatewayClient): AgentAiServ
     async rankMappings(table, choice) {
       const unfed = await need(deps.mapping.getUnfed(table)); if (!unfed.ok) return unfed.error;
       const sugg = await need(deps.mapping.getSuggestions(table)); if (!sugg.ok) return sugg.error;
-      const { prompt, candidateIds } = mappingPrompt({ table, unfed: unfed.value, suggestions: sugg.value });
+      const analysis = await need(deps.mapping.getAnalysis(table)); if (!analysis.ok) return analysis.error;
+      const { prompt, candidateIds } = mappingPrompt({ table, unfed: unfed.value, suggestions: sugg.value, analysis: analysis.value });
       if (candidateIds.size === 0) return fail('NO_CONTEXT', 'No unfed columns with candidate source columns for this table.');
       return run(prompt, 'agent4-mapping', (t) => parseMappingInsight(t, sugg.value, candidateIds), choice);
     },

@@ -408,6 +408,8 @@ export interface Suggestion {
   sourceColumn: string;
   sourceType: string;
   confidence: number; // 0-100, heuristic
+  /** Required conversion, when the match needs one (e.g. date key -> DATE through a workbook lookup table). */
+  transformation?: string;
   reasons: string[];
   issues: string[];
   compat: CompatLevel;
@@ -422,6 +424,95 @@ export interface UnfedColumn {
   reason: string; // e.g. mapType from workbook or 'no mapping row'
   hasSuggestion: boolean;
   ambiguous: boolean;
+}
+/**
+ * Why a target column has (or has not) a mapping. These are deliberately distinct outcomes:
+ * - resolved: a reviewer approved a suggestion or entered a manual mapping
+ * - suggested / ambiguous: an acceptable candidate exists (ambiguous = two near-equal ones; needs a human choice)
+ * - below-threshold: a plausible candidate WAS found but scored under the acceptance threshold or failed a type check
+ * - no-match: candidates were evaluated and none resembles the column
+ * - insufficient-context: there was nothing to evaluate (no known source columns for this table)
+ * - declared-unmapped: the workbook itself states the column is not fed / not used
+ */
+export type ColumnMappingStatus = 'resolved' | 'suggested' | 'ambiguous' | 'below-threshold' | 'no-match' | 'insufficient-context' | 'declared-unmapped';
+export interface CandidateTrace {
+  table: string;
+  column: string;
+  type: string;
+  /** Where the candidate came from: unmapped list, feeder-table column, or staging column feeding a MART table. */
+  pool: 'unmapped-list' | 'feeder-table' | 'staging-feeder';
+  nameScore: number;
+  typeScore: number;
+  exact: boolean;
+  contextBonus: number;
+  score: number;
+  accepted: boolean;
+  rejection?: string;
+  /** Evidence from the workbook / procedure SQL that references this source column for the target column. */
+  evidence: string[];
+  /** Conversion the migration needs when the source is a date key and the target a DATE (derived from the workbook's calendar table). */
+  transformation?: string;
+  /** Why the semantic path (not plain name similarity) was used. */
+  semanticNote?: string;
+  /** Name tokens after abbreviation / learned-alias normalisation (target side | candidate side). */
+  matchedTokens: string[];
+}
+export interface ColumnAnalysis {
+  targetTable: string;
+  targetColumn: string;
+  targetType: string;
+  nullable: boolean | null;
+  workbookStatus: string;
+  status: ColumnMappingStatus;
+  explanation: string;
+  poolSize: number;
+  best?: CandidateTrace;
+  /** Top candidates, accepted or rejected, for the "why" view. */
+  candidates: CandidateTrace[];
+  resolvedBy?: string;
+}
+export interface MappingContextSummary {
+  sourceTables: string[];
+  poolSize: number;
+  learnedAliases: { from: string; to: string; support: number }[];
+  daRules: number;
+  remarkRows: number;
+  procedureWriters: string[];
+  procedureSqlLoaded: boolean;
+  columnDescriptions: 'Not provided in workbook';
+  threshold: number;
+}
+export interface TableAnalysis {
+  table: string;
+  context: MappingContextSummary;
+  columns: ColumnAnalysis[];
+  counts: Record<ColumnMappingStatus, number>;
+}
+/** A reference or rule column of a dd_export rule that has no confirmed TRAQ column. */
+export interface DdUnmappedRef {
+  role: 'rule column' | 'reads';
+  crismac: string;
+  status: 'approved' | 'documented' | 'name-match' | 'ambiguous' | 'missing' | 'suggested';
+  reason: string;
+  suggestion: string;
+}
+/** One row of a project dd_export.csv, migrated to TRAQ names only where every column is confirmed. */
+export interface DdMigratedRule {
+  id: string;
+  procedure: string;
+  /** Row number in the CSV (header = row 1). */
+  rowNo: number;
+  original: string[];
+  traqRow: string[];
+  status: 'ready' | 'needs-mapping';
+  entity: string;
+  column: string;
+  unmapped: DdUnmappedRef[];
+  notes: string[];
+}
+export interface DdMigrationResult {
+  rules: DdMigratedRule[];
+  procedures: { name: string; available: boolean; rules: number; note: string }[];
 }
 export interface ManualMapping {
   id: string;

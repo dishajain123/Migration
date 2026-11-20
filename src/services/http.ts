@@ -61,6 +61,7 @@ export function createHttpServices(): Omit<Services, 'ai' | 'assistant'> {
       getDocumented: (table) => get(ep.mappingDocumented, { target: table }),
       getSuggestions: (table) => post(ep.mappingSuggest, { targetTable: table }),
       getUnfed: (table) => get(ep.mappingUnfed, { target: table }),
+      getAnalysis: (table, reviewed) => post(ep.mappingAnalysis, { targetTable: table, reviewed: reviewed ?? [] }),
       getIssues: (table) => get(`${ep.mappingDocumented}/issues`, { target: table }),
       listAllTables: () => get(`${ep.tables}?withColumns=true`),
       submitReview: (id, decision, comment) => post(ep.mappingReview, { id, decision, comment }),
@@ -75,6 +76,7 @@ export function createHttpServices(): Omit<Services, 'ai' | 'assistant'> {
       loadSamples: () => get(ep.conversionSamples),
       listTemplates: () => get(ep.conversionTemplates),
       convert: (req) => post(ep.conversionConvert, req),
+      migrateDd: (req) => post(ep.conversionMigrateDd, req),
     },
     dashboard: { getSummary: () => get(ep.dashboard) },
   };

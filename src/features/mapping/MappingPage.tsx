@@ -1,5 +1,5 @@
 import { Check, Trash2, Undo2, X } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { ConfirmDialog } from '@/components/Dialog';
@@ -7,8 +7,8 @@ import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Progress, Select, SimulatedBadge, Tabs } from '@/components/ui';
 import { noResult, useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
-import { useReviewStore } from '@/stores/reviewStore';
-import type { MappingIssueSummary, MappingRow, Suggestion, UnfedColumn } from '@/types';
+import { selectReviewedMappings, useReviewStore } from '@/stores/reviewStore';
+import type { ColumnAnalysis, MappingIssueSummary, MappingRow, ColumnMappingStatus, Suggestion } from '@/types';
 
 type Tab = 'suggestions' | 'documented' | 'unfed' | 'manual';
 
@@ -99,7 +99,7 @@ function Suggestions({ table }: { table: string }) {
                 { key: 'tgt', header: 'Target', render: (s) => <div className="font-mono text-xs">{s.targetColumn}<div className="text-muted">{s.targetType || '-'}</div></div> },
                 { key: 'src', header: 'Suggested source', render: (s) => <div className="font-mono text-xs">{s.sourceTable}.{s.sourceColumn}<div className="text-muted">{s.sourceType || '-'}</div></div> },
                 { key: 'c', header: 'Confidence', className: 'w-36', render: (s) => <div><div className="mb-1 text-xs tabular-nums">{s.confidence}%</div><Progress value={s.confidence} tone={s.confidence >= 75 ? 'ok' : s.confidence >= 50 ? 'warn' : 'bad'} /></div> },
-                { key: 'i', header: 'Flags', render: (s) => <div className="space-y-1 text-xs">{s.ambiguous && <Badge tone="warn">ambiguous</Badge>}{s.compat !== 'compatible' && s.compat !== 'unknown' && <Badge tone={s.compat === 'incompatible' ? 'bad' : 'warn'}>{s.compat}</Badge>}{s.issues.map((i) => <div key={i} className="text-muted">{i}</div>)}</div> },
+                { key: 'i', header: 'Flags', render: (s) => <div className="space-y-1 text-xs">{s.ambiguous && <Badge tone="warn">ambiguous</Badge>}{s.compat !== 'compatible' && s.compat !== 'unknown' && <Badge tone={s.compat === 'incompatible' ? 'bad' : 'warn'}>{s.compat}</Badge>}{s.issues.map((i) => <div key={i} className="text-muted">{i}</div>)}{s.transformation && <div className="rounded border border-border p-1"><b>Transformation:</b> {s.transformation}</div>}{s.reasons.filter((r) => r.startsWith('Semantic:') || r.startsWith('Context:')).map((r) => <div key={r} className="text-muted">{r}</div>)}</div> },
                 { key: 'st', header: 'Status', render: (s) => <Badge tone={stat(s) === 'approved' ? 'ok' : stat(s) === 'rejected' ? 'bad' : 'neutral'}>{stat(s)}</Badge> },
                 { key: 'a', header: '', render: (s) => (
                   <div className="flex gap-1">
@@ -145,22 +145,97 @@ function Documented({ table }: { table: string }) {
   );
 }
 
+const STATUS: Record<ColumnMappingStatus, { label: string; tone: 'ok' | 'warn' | 'bad' | 'info' | 'neutral'; help: string }> = {
+  resolved: { label: 'Resolved', tone: 'ok', help: 'A reviewer approved a suggestion or entered a manual mapping.' },
+  suggested: { label: 'Suggested', tone: 'info', help: 'An acceptable candidate exists; waiting for human approval.' },
+  ambiguous: { label: 'Ambiguous', tone: 'warn', help: 'Two or more near-equal candidates; a human must choose.' },
+  'below-threshold': { label: 'Found, rejected', tone: 'warn', help: 'A plausible candidate was found but failed the score or type check.' },
+  'no-match': { label: 'No match', tone: 'neutral', help: 'Candidates were compared and none resembles the column.' },
+  'insufficient-context': { label: 'Insufficient context', tone: 'bad', help: 'There were no source columns to compare. More context is needed.' },
+  'declared-unmapped': { label: 'Declared unmapped', tone: 'neutral', help: 'The workbook itself marks the column as not fed / not used.' },
+};
+
 function Unfed({ table }: { table: string }) {
-  const state = useAsync(() => services.mapping.getUnfed(table), [table]);
+  const decisions = useReviewStore((s) => s.mappingDecisions);
+  const manual = useReviewStore((s) => s.manualMappings);
+  const reviewed = useMemo(() => selectReviewedMappings({ mappingDecisions: decisions, manualMappings: manual }), [decisions, manual]);
+  const state = useAsync(() => services.mapping.getAnalysis(table, reviewed), [table, reviewed]);
+  const [open, setOpen] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ColumnMappingStatus | 'all'>('all');
+  return (
+    <AsyncView state={state} isEmpty={(d) => d.columns.length === 0} emptyMessage="Every column of this table is fed by a documented mapping.">
+      {(a) => {
+        const rows = a.columns.filter((c) => filter === 'all' || c.status === filter);
+        const sel = a.columns.find((c) => c.targetColumn === open);
+        return (
+          <div className="space-y-3">
+            <Card className="p-3 text-xs">
+              <div className="mb-2 font-medium">Context the engine used for {a.table}</div>
+              <div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
+                <div>Feeding source tables (lineage): <span className="font-mono">{a.context.sourceTables.join(', ') || 'none documented'}</span></div>
+                <div>Candidate source columns compared: <b>{a.context.poolSize}</b></div>
+                <div>Workbook remarks / FPM_DA_RULES rows for this table: <b>{a.context.remarkRows}</b> / <b>{a.context.daRules}</b></div>
+                <div>Procedure SQL: {a.context.procedureSqlLoaded ? <>loaded; writers of this table: <b>{a.context.procedureWriters.join(', ') || 'none'}</b></> : 'not loaded'}</div>
+                <div>Name aliases learned from documented mappings: <b>{a.context.learnedAliases.length}</b>{a.context.learnedAliases.length > 0 && <span className="text-muted"> (e.g. {a.context.learnedAliases.slice(0, 3).map((x) => `${x.from}→${x.to}`).join(', ')})</span>}</div>
+                <div>Column descriptions: <span className="text-muted">{a.context.columnDescriptions}</span></div>
+              </div>
+              <div className="mt-2 text-muted">Skill files under .claude/skills guide the developers and the coding assistant; they are not loaded by this app at run time.</div>
+            </Card>
+            <Card>
+              <CardHeader title="Columns with no feeding mapping" subtitle="Each column has one explicit outcome; click a row for the candidate trace" right={<SimulatedBadge />} />
+              <div className="flex flex-wrap items-center gap-2 border-b border-border p-3 text-xs">
+                <button type="button" onClick={() => setFilter('all')} className={filter === 'all' ? 'font-semibold' : 'text-muted'}>All ({a.columns.length})</button>
+                {(Object.keys(STATUS) as ColumnMappingStatus[]).filter((k) => a.counts[k] > 0).map((k) => (
+                  <button key={k} type="button" title={STATUS[k].help} onClick={() => setFilter(k)} className={filter === k ? 'font-semibold' : 'text-muted'}>
+                    <Badge tone={STATUS[k].tone}>{STATUS[k].label} {a.counts[k]}</Badge>
+                  </button>
+                ))}
+              </div>
+              <DataTable<ColumnAnalysis> rows={rows} rowKey={(r) => r.targetColumn} pageSize={20} onRowClick={(r) => setOpen(r.targetColumn === open ? null : r.targetColumn)} selectedKey={open ?? undefined}
+                columns={[
+                  { key: 'c', header: 'Column', render: (r) => <span className="font-mono text-xs">{r.targetColumn} <span className="text-muted">{r.targetType}</span></span> },
+                  { key: 'n', header: 'Null', render: (r) => (r.nullable === false ? <Badge tone="warn">NOT NULL</Badge> : r.nullable === null ? '-' : 'NULL') },
+                  { key: 'r', header: 'Workbook status', render: (r) => <span className="text-xs text-muted">{r.workbookStatus}</span> },
+                  { key: 'a', header: 'Outcome', render: (r) => <Badge tone={STATUS[r.status].tone}>{STATUS[r.status].label}</Badge> },
+                  { key: 'b', header: 'Best candidate', render: (r) => (r.best ? <span className="font-mono text-xs">{r.best.table}.{r.best.column} <span className="text-muted">{Math.round(r.best.score * 100)}%</span></span> : <span className="text-xs text-muted">-</span>) },
+                ]} />
+            </Card>
+            {sel && <ColumnTrace col={sel} threshold={a.context.threshold} />}
+          </div>
+        );
+      }}
+    </AsyncView>
+  );
+}
+
+function ColumnTrace({ col, threshold }: { col: ColumnAnalysis; threshold: number }) {
   return (
     <Card>
-      <CardHeader title="Columns with no feeding mapping" subtitle="Includes columns marked NOT FED / NOT MAPPED / NOT USED in the workbook" />
-      <AsyncView state={state} isEmpty={(d) => d.length === 0}>
-        {(rows) => (
-          <DataTable<UnfedColumn> rows={rows} rowKey={(r) => r.targetColumn} pageSize={20}
-            columns={[
-              { key: 'c', header: 'Column', render: (r) => <span className="font-mono text-xs">{r.targetColumn} <span className="text-muted">{r.targetType}</span></span> },
-              { key: 'n', header: 'Null', render: (r) => (r.nullable === false ? <Badge tone="warn">NOT NULL</Badge> : r.nullable === null ? '-' : 'NULL') },
-              { key: 'r', header: 'Workbook status', render: (r) => <span className="text-xs text-muted">{r.reason}</span> },
-              { key: 'a', header: 'Agent', render: (r) => (r.ambiguous ? <Badge tone="warn">ambiguous</Badge> : r.hasSuggestion ? <Badge tone="info">has suggestion</Badge> : <Badge>no candidate</Badge>) },
-            ]} />
+      <CardHeader title={`Why: ${col.targetColumn}`} subtitle={`${STATUS[col.status].label} · accept at ≥ ${Math.round(threshold * 100)}% (Simulated heuristic)`} />
+      <div className="space-y-2 p-3 text-xs">
+        <p>{col.explanation}</p>
+        {col.resolvedBy && <p className="text-muted">{col.resolvedBy}</p>}
+        {col.candidates.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="text-muted"><tr><th className="py-1 pr-3">Candidate</th><th className="pr-3">Name</th><th className="pr-3">Type</th><th className="pr-3">Context</th><th className="pr-3">Score</th><th>Decision</th></tr></thead>
+              <tbody>
+                {col.candidates.map((c) => (
+                  <tr key={`${c.table}.${c.column}`} className="border-t border-border align-top">
+                    <td className="py-1 pr-3 font-mono">{c.table}.{c.column}<div className="text-muted">{c.type || '-'} · {c.pool}</div>{c.matchedTokens.length > 0 && <div className="text-muted">shared: {c.matchedTokens.join(', ')}</div>}{c.semanticNote && <div className="font-sans text-muted">{c.semanticNote}</div>}{c.transformation && <div className="font-sans"><b>Transformation:</b> {c.transformation}</div>}</td>
+                    <td className="pr-3 tabular-nums">{Math.round(c.nameScore * 100)}%</td>
+                    <td className="pr-3 tabular-nums">{Math.round(c.typeScore * 100)}%</td>
+                    <td className="pr-3">{c.evidence.length ? c.evidence.map((e) => <div key={e}>{e}</div>) : <span className="text-muted">none</span>}</td>
+                    <td className="pr-3 tabular-nums">{Math.round(c.score * 100)}%</td>
+                    <td>{c.accepted ? <Badge tone="ok">accepted</Badge> : <span className="text-muted">{c.rejection}</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </AsyncView>
+        <p className="text-muted">Console trace for every column: run <span className="font-mono">localStorage.mappingTrace = '1'</span> and reload.</p>
+      </div>
     </Card>
   );
 }

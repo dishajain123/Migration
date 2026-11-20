@@ -1,7 +1,7 @@
 import type {
-  ApiResult, BusinessRule, CatalogEntry, ConversionRequest, ConversionResult, FlowRequest, LineageFlow, RuleTemplate, SqlFileAnalysis, UploadedSql, ChatAnswer, ChatRequest, DdExport, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
+  ApiResult, BusinessRule, CatalogEntry, ConversionRequest, ConversionResult, FlowRequest, LineageFlow, RuleTemplate, SqlFileAnalysis, UploadedSql, ChatAnswer, ChatRequest, DdExport, DdMigrationResult, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
   MappingRow, ProcObject, Relationship, ReviewDecision, ScopeInfo, SqlAnalysis, Suggestion, SystemKind, TableComparison, TableDetail,
-  TableSummary, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel, ReviewedMapping,
+  TableSummary, TableAnalysis, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel, ReviewedMapping,
 } from '@/types';
 import type { AiInsight, ChatStreamEvent, ModelChoice, ProviderId } from '@/types/ai';
 
@@ -43,6 +43,8 @@ export interface MappingService {
   getDocumented(table: string): Promise<ApiResult<MappingRow[]>>;
   getSuggestions(table: string): Promise<ApiResult<Suggestion[]>>;
   getUnfed(table: string): Promise<ApiResult<UnfedColumn[]>>;
+  /** Per-column status (resolved / suggested / below-threshold / no-match / insufficient-context / declared-unmapped) with the candidate trace. Reviewer decisions resolve columns. */
+  getAnalysis(table: string, reviewed?: ReviewedMapping[]): Promise<ApiResult<TableAnalysis>>;
   getIssues(table: string): Promise<ApiResult<MappingIssueSummary>>;
   listAllTables(): Promise<ApiResult<{ name: string; columns: { name: string; dataType: string }[] }[]>>;
   submitReview(id: string, decision: ReviewDecision, comment: string): Promise<ApiResult<{ id: string; decision: ReviewDecision }>>;
@@ -64,6 +66,8 @@ export interface RuleConversionService {
   listTemplates(): Promise<ApiResult<RuleTemplate[]>>;
   /** Extract rules, resolve CrisMac columns through Agent 4 mappings, translate to TRAQ syntax. */
   convert(req: ConversionRequest): Promise<ApiResult<ConversionResult>>;
+  /** Corrected rules from the project's dd_export.csv files, with CrisMac names replaced by confirmed TRAQ columns; unmapped rules stay separate. */
+  migrateDd(req: { reviewed: ReviewedMapping[] }): Promise<ApiResult<DdMigrationResult>>;
 }
 
 export interface DashboardService {

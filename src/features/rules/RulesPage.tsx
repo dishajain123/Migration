@@ -4,14 +4,15 @@ import { useSearchParams } from 'react-router-dom';
 import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { InfoTip } from '@/components/InfoTip';
 import { ConversionWorkspace } from './conversion/ConversionWorkspace';
+import { DdMigration } from './conversion/DdMigration';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Select, Stat, Tabs } from '@/components/ui';
 import { useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
 import { selectReviewedMappings, useReviewStore } from '@/stores/reviewStore';
 import type { BusinessRule, RuleKind, Severity, ValidationResult } from '@/types';
 
-type Tab = 'convert' | 'rules' | 'validation';
-const TABS: Tab[] = ['convert', 'rules', 'validation'];
+type Tab = 'convert' | 'migrate' | 'rules' | 'validation';
+const TABS: Tab[] = ['convert', 'migrate', 'rules', 'validation'];
 const KINDS: RuleKind[] = ['mandatory', 'constant', 'default', 'transform', 'constraint', 'derivation'];
 const sevTone: Record<Severity, 'ok' | 'warn' | 'bad'> = { pass: 'ok', warn: 'warn', fail: 'bad' };
 
@@ -33,10 +34,11 @@ export function RulesPage() {
       />
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[
         { id: 'convert', label: 'CrisMac SQL → TRAQ rules' },
+        { id: 'migrate', label: 'Corrected rules → TRAQ names' },
         { id: 'rules', label: 'Workbook rules' },
         { id: 'validation', label: 'Validation' },
       ]} />
-      <div key={tab} className="anim-fade mt-3">{tab === 'convert' ? <ConversionWorkspace /> : tab === 'rules' ? <Rules /> : <Validation />}</div>
+      <div key={tab} className="anim-fade mt-3">{tab === 'convert' ? <ConversionWorkspace /> : tab === 'migrate' ? <DdMigration /> : tab === 'rules' ? <Rules /> : <Validation />}</div>
     </div>
   );
 }

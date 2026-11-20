@@ -115,7 +115,7 @@ export function resolveColumn(
       const candidate: MappingCandidate = { table: s.table, column: s.column, dataType: s.dataType, basis: 'agent4-suggestion', confidence: s.confidence };
       return {
         crismacTable, crismacColumn, chosen: candidate, candidates: [candidate], status: 'suggested',
-        note: `Simulated suggestion from Agent 4's matching heuristic (${s.confidence}% confidence against the TRAQ data model)${s.ambiguous ? '; another candidate scored nearly as high' : ''}. Not a mapping yet - approve or replace it in Agent 4 before export.`,
+        note: `Simulated suggestion from Agent 4's matching heuristic (${s.confidence}% confidence against the TRAQ data model)${s.ambiguous ? '; another candidate scored nearly as high' : ''}. Not a mapping yet - approve or replace it in Agent 4 before export.${s.transformation ? ` Needs a conversion: ${s.transformation}` : ''}`,
       };
     }
     return { crismacTable, crismacColumn, status: 'missing', chosen: null, candidates: [], note: 'No Agent 4 or workbook mapping, no TRAQ column with this name, and no Simulated suggestion scored high enough to propose one.' };

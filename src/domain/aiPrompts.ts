@@ -1,5 +1,5 @@
 import type {
-  FlowColumnEdge, LineageFlow, ProcObject, ProcSource, Relationship, Suggestion, TableDetail, UnfedColumn, ValidationReport,
+  FlowColumnEdge, LineageFlow, ProcObject, ProcSource, Relationship, Suggestion, TableAnalysis, TableDetail, UnfedColumn, ValidationReport,
 } from '@/types';
 import type { AiInsight, ChatMessage } from '@/types/ai';
 
@@ -86,7 +86,7 @@ export function procedureExplainPrompt(o: ProcObject, src?: ProcSource): PromptS
 }
 
 // ---- Agent 4: Mapping (the model may only choose among supplied candidates) ----
-export interface MappingContext { table: string; unfed: UnfedColumn[]; suggestions: Suggestion[] }
+export interface MappingContext { table: string; unfed: UnfedColumn[]; suggestions: Suggestion[]; analysis?: TableAnalysis }
 
 const MAPPING_SCHEMA = 'JSON schema: {"picks": [{"targetColumn": string, "candidateId": string (copied exactly from the context), "confidence": integer 0-100, "reason": string}], "unresolved": [{"targetColumn": string, "reason": string}]}. Choose candidateId ONLY from the listed candidates. If none is plausible, put the column in "unresolved".';
 
@@ -99,7 +99,20 @@ export function mappingPrompt(c: MappingContext): { prompt: PromptSpec; candidat
     const cands = (byCol.get(u.targetColumn) ?? []).slice(0, 4).map((s) => { ids.add(s.id); return `   * candidateId=${s.id}: ${s.sourceTable}.${s.sourceColumn} (${s.sourceType}); heuristic reasons: ${s.reasons.join(', ') || 'none'}; issues: ${s.issues.join(', ') || 'none'}`; });
     return `- ${u.targetColumn} ${u.targetType} (unfed: ${u.reason})\n${cands.join('\n')}`;
   }).join('\n');
-  const context = `Target table: ${c.table}\nUnfed columns with candidate source columns:\n${block || 'none'}`;
+  // Engine context the model may weigh (never a licence to pick outside the offered candidates).
+  const a = c.analysis;
+  const ctxLines = a ? [
+    `Source tables feeding this target (lineage): ${a.context.sourceTables.join(', ') || 'none documented'}; candidate pool ${a.context.poolSize} column(s).`,
+    `Evidence available: ${a.context.remarkRows} workbook remark row(s), ${a.context.daRules} FPM_DA_RULES row(s), procedure SQL ${a.context.procedureSqlLoaded ? `loaded (writers: ${a.context.procedureWriters.join(', ') || 'none for this table'})` : 'not loaded'}; column descriptions: ${a.context.columnDescriptions}.`,
+  ] : [];
+  const offered = new Set(cols.map((u) => u.targetColumn));
+  const notRankable = (a?.columns ?? []).filter((x) => !offered.has(x.targetColumn) && x.status !== 'resolved').slice(0, 25)
+    .map((x) => `- ${x.targetColumn}: ${x.status}${x.best?.rejection ? ` (best rejected: ${x.best.table}.${x.best.column} - ${x.best.rejection})` : ''}`);
+  const context = [
+    `Target table: ${c.table}`, ...ctxLines,
+    `Unfed columns with candidate source columns:\n${block || 'none'}`,
+    notRankable.length ? `Columns with NO acceptable candidate (report them in "unresolved"; do not invent one):\n${notRankable.join('\n')}` : '',
+  ].filter(Boolean).join('\n');
   return {
     prompt: spec('For each target column pick the most semantically plausible candidate, judging by names, data types and the heuristic reasons. Your confidence is an estimate, not a measurement.', MAPPING_SCHEMA, context),
     candidateIds: ids,
