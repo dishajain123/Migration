@@ -7,6 +7,7 @@ import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Progress, Select, SimulatedBadge, Tabs } from '@/components/ui';
 import { noResult, useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
+import { clearMappingDecisionAndRevalidate, removeMappingAndRevalidate } from '@/stores/approvalWorkflow';
 import { selectReviewedMappings, useReviewStore } from '@/stores/reviewStore';
 import type { ColumnAnalysis, MappingIssueSummary, MappingRow, ColumnMappingStatus, Suggestion } from '@/types';
 
@@ -33,6 +34,7 @@ export function MappingPage() {
         </span>}
       />
       {lastError && <div className="mb-3 rounded-md border border-bad bg-badbg p-2 text-xs text-bad">{lastError}</div>}
+      <AutoSaved onOpen={setTable} />
       <Card className="mb-4">
         <CardHeader title="Target table" subtitle="Tables that have at least one column no mapping feeds" />
         <div className="p-3">
@@ -63,11 +65,42 @@ export function MappingPage() {
   );
 }
 
+/** Mappings saved automatically when rules were approved in Agent 5 (no need to enter them here). */
+function AutoSaved({ onOpen }: { onOpen: (table: string) => void }) {
+  const all = useReviewStore((s) => s.manualMappings);
+  const [note, setNote] = useState('');
+  const mine = all.filter((m) => m.origin === 'rule-approval');
+  if (mine.length === 0) return null;
+  return (
+    <Card className="mb-4">
+      <details>
+        <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-medium">
+          Saved automatically from approved rules <Badge tone="ok">{mine.length}</Badge>
+          <span className="text-xs font-normal text-muted">Created when you approved rules in Agent 5. Removing one sends the rules that rely on it back to review.</span>
+        </summary>
+        {note && <p role="status" className="px-4 pb-2 text-xs text-warn">{note}</p>}
+        <ul className="divide-y divide-border border-t border-border">
+          {mine.map((m) => (
+            <li key={m.id} className="flex items-start justify-between gap-2 px-4 py-2 text-xs">
+              <div className="min-w-0">
+                <div className="font-mono">{m.sourceTable}.{m.sourceColumn} → {m.targetTable}.{m.targetColumn}</div>
+                <div className="text-muted">{m.evidence}{m.ruleIds && m.ruleIds.length > 0 ? ` · ${m.ruleIds.length} rule(s): ${m.ruleIds.slice(0, 3).join(', ')}${m.ruleIds.length > 3 ? ', ...' : ''}` : ''}</div>
+                <button type="button" className="text-primary hover:underline" onClick={() => onOpen(m.targetTable)}>Open {m.targetTable}</button>
+              </div>
+              <Button size="icon" variant="ghost" aria-label="Remove mapping" onClick={() => { const r = removeMappingAndRevalidate(m.id); setNote(r.revalidated.length ? `${r.revalidated.length} approved rule(s) relied on that mapping and are back in review.` : ''); }}><Trash2 size={14} /></Button>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </Card>
+  );
+}
+
 function Suggestions({ table }: { table: string }) {
   const state = useAsync(() => services.mapping.getSuggestions(table), [table]);
   const decisions = useReviewStore((s) => s.mappingDecisions);
   const review = useReviewStore((s) => s.reviewMapping);
-  const clear = useReviewStore((s) => s.clearMappingDecision);
+  const clear = clearMappingDecisionAndRevalidate;
   const [min, setMin] = useState(0);
   const [status, setStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [confirmBulk, setConfirmBulk] = useState(false);
@@ -245,7 +278,7 @@ function Manual({ table }: { table: string }) {
   const unfed = useAsync(() => services.mapping.getUnfed(table), [table]);
   const all = useReviewStore((s) => s.manualMappings);
   const add = useReviewStore((s) => s.addManualMapping);
-  const remove = useReviewStore((s) => s.removeManualMapping);
+  const remove = removeMappingAndRevalidate;
   const [col, setCol] = useState('');
   const [srcTable, setSrcTable] = useState('');
   const [srcCol, setSrcCol] = useState('');
@@ -295,7 +328,12 @@ function Manual({ table }: { table: string }) {
           <ul className="divide-y divide-border">
             {mine.map((m) => (
               <li key={m.id} className="flex items-start justify-between gap-2 p-3 text-xs">
-                <div><span className="font-mono">{m.targetColumn}</span> ← <span className="font-mono">{m.sourceTable}.{m.sourceColumn}</span>{m.note && <div className="text-muted">{m.note}</div>}</div>
+                <div>
+                  <span className="font-mono">{m.targetColumn}</span> ← <span className="font-mono">{m.sourceTable}.{m.sourceColumn}</span>
+                  {m.origin === 'rule-approval' && <> <Badge tone="ok">Saved from rule approval</Badge></>}
+                  {m.note && <div className="text-muted">{m.note}</div>}
+                  {m.ruleIds && m.ruleIds.length > 0 && <div className="text-muted">Rule{m.ruleIds.length > 1 ? 's' : ''}: <span className="font-mono">{m.ruleIds.join(', ')}</span></div>}
+                </div>
                 <Button size="icon" variant="ghost" aria-label="Remove" onClick={() => remove(m.id)}><Trash2 size={14} /></Button>
               </li>
             ))}

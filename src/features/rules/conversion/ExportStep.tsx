@@ -4,7 +4,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Button, Card, CardHeader, Input, Select, Stat } from '@/components/ui';
 import {
-  conversionReportDoc, effectiveFields, rulesInScope, templateRow, traqRuleDoc, validateForExport, type ExportScope,
+  conversionReportDoc, effectiveFields, rulesInScope, splitByReadiness, templateRow, traqRuleDoc, validateForExport, type ExportScope,
 } from '@/domain/ruleConversion/templates';
 import { decisionCounts } from '@/domain/ruleConversion/views';
 import { useAsync } from '@/hooks/useAsync';
@@ -31,7 +31,7 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
   const edits = useConversionStore((s) => s.edits);
   const settings = useConversionStore((s) => s.settings);
   const setSettings = useConversionStore((s) => s.setSettings);
-  const [scope, setScope] = useState<ExportScope>('approved');
+  const [scope, setScope] = useState<ExportScope>('validated');
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const template = templates.find((t) => t.id === templateId) ?? templates[0];
   const batch = settings.effectiveStartDate;
@@ -40,6 +40,8 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
   const errors = checks.filter((c) => c.severity === 'error');
   const warnings = checks.filter((c) => c.severity === 'warning');
   const counts = decisionCounts(rules, edits);
+  const split = useMemo(() => splitByReadiness(rules, edits), [rules, edits]);
+  const notReady = useMemo(() => split.pending.filter((p) => edits[p.rule.id]?.decision !== 'rejected' && (p.rule.target.chosen || edits[p.rule.id]?.decision === 'approved')), [split, edits]);
   const blocked = inScope.length === 0 || errors.length > 0;
   const now = () => new Date().toISOString();
 
@@ -54,11 +56,12 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <Stat label="Rules" value={rules.length} />
         <Stat label="Converted" value={rules.filter((r) => r.status === 'converted').length} hint="no open issues" />
         <Stat label="Needs review" value={rules.filter((r) => r.status === 'needs-review').length} />
         <Stat label="Failed" value={rules.filter((r) => r.status === 'failed').length} hint="no TRAQ target" />
+        <Stat label="Ready for TRAQ" value={split.ready.length} hint="approved, every column confirmed" />
         <Stat label="Approved" value={counts.approved} />
         <Stat label="Rejected" value={counts.rejected} />
         <Stat label="Pending review" value={counts.pending} />
@@ -91,7 +94,8 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
             <label className="text-xs">
               <span className="mb-1 block font-medium">Rules to export</span>
               <Select value={scope} onChange={(e) => setScope(e.target.value as ExportScope)}>
-                <option value="approved">Approved only ({counts.approved})</option>
+                <option value="validated">Validated TRAQ rules only ({split.ready.length})</option>
+                <option value="approved">Approved, even with unconfirmed mappings ({counts.approved})</option>
                 <option value="approved-and-pending">Approved and pending (not rejected or failed)</option>
               </Select>
             </label>
@@ -112,13 +116,15 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
           )}
 
           <Validation inScope={inScope.length} errors={errors} warnings={warnings} onOpenRule={onOpenRule} />
+          <p className="text-xs text-muted">The Export menu above (top right) downloads the complete report instead: every rule with its Ready / Pending status, the reasons, the original CrisMac logic beside the TRAQ expression, and every column mapping.</p>
+          <NotReady items={notReady} onOpenRule={onOpenRule} />
         </div>
       </Card>
 
       <Card>
         <CardHeader title="Preview" subtitle={`${template.name} · first ${Math.min(PREVIEW_ROWS, inScope.length)} of ${inScope.length} row(s), exactly as they will be written (* = mandatory)`} />
         {inScope.length === 0 ? (
-          <p className="p-6 text-center text-sm text-muted">{scope === 'approved' ? 'No approved rules yet. Approve rules in step 4, or include pending rules.' : 'No rules in scope.'}</p>
+          <p className="p-6 text-center text-sm text-muted">{scope === 'approved' ? scope === 'validated' ? 'No rule is Ready yet. Approve rules in step 4 (every column must be confirmed), or widen the scope.' : 'No approved rules yet. Approve rules in step 4, or include pending rules.' : 'No rules in scope.'}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -141,6 +147,25 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+function NotReady({ items, onOpenRule }: { items: { rule: ConvertedRule; reasons: string[] }[]; onOpenRule: (id: string) => void }) {
+  if (items.length === 0) return null;
+  const list = items.slice(0, 25);
+  return (
+    <div className="rounded-md border border-border">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm"><AlertTriangle size={14} className="text-warn" /> {items.length} rule(s) with a TRAQ target are not Ready and are not in the validated file</div>
+      <ul className="max-h-56 divide-y divide-border overflow-auto text-xs">
+        {list.map(({ rule, reasons }) => (
+          <li key={rule.id} className="flex items-start gap-2 px-3 py-1.5">
+            <span className="min-w-0 flex-1"><span className="font-mono">{rule.crismacTable}.{rule.crismacColumn}</span> <span className="text-muted">({rule.procedure})</span>: {reasons.slice(0, 3).join('; ')}{reasons.length > 3 ? ` (+${reasons.length - 3} more)` : ''}</span>
+            <button type="button" className="shrink-0 text-primary hover:underline" onClick={() => onOpenRule(rule.id)}>Open rule</button>
+          </li>
+        ))}
+      </ul>
+      {items.length > list.length && <p className="px-3 py-1.5 text-[11px] text-muted">Showing {list.length} of {items.length}. The complete export lists all of them.</p>}
     </div>
   );
 }

@@ -524,6 +524,37 @@ export interface ManualMapping {
   sourceType: string;
   note: string;
   createdAt: string;
+  /** 'rule-approval' = saved automatically when the user approved a rule that depends on it; absent/'manual' = typed in Agent 4. */
+  origin?: 'manual' | 'rule-approval';
+  /** Rules whose approval created or relies on this mapping (traceability; used to re-validate them if it is removed). */
+  ruleIds?: string[];
+  /** Why the mapping is trusted, in words (workbook row, same-name match confirmed by the reviewer, ...). */
+  evidence?: string;
+  /** What the resolver relied on when the user confirmed it. */
+  basis?: MappingBasis;
+}
+/** One CrisMac -> TRAQ column pair behind an approved rule, and what the approval did with it. */
+export interface ApprovalMappingRef {
+  /** `${SOURCE_TABLE}.${SOURCE_COLUMN}` (logical, upper-case). */
+  key: string;
+  role: 'writes' | 'reads';
+  sourceTable: string;
+  sourceColumn: string;
+  targetTable: string;
+  targetColumn: string;
+  targetType: string;
+  basis: MappingBasis;
+  /** created = new Agent 4 mapping saved; reused = an Agent 4 or documented workbook mapping already covered it. */
+  action: 'created' | 'reused';
+  mappingId?: string;
+  evidence: string;
+}
+export interface RuleApproval {
+  ruleId: string;
+  at: string;
+  via: 'single' | 'selected' | 'all';
+  comment: string;
+  mappings: ApprovalMappingRef[];
 }
 export interface ReviewedMapping {
   id: string;

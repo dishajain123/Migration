@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { services } from '@/services';
-import type { ManualMapping, ReviewDecision, ReviewedMapping } from '@/types';
+import type { ManualMapping, ReviewDecision, ReviewedMapping, RuleApproval } from '@/types';
 
 export interface StoredDecision {
   decision: ReviewDecision;
@@ -14,6 +14,8 @@ interface ReviewState {
   mappingDecisions: Record<string, StoredDecision>;
   manualMappings: ManualMapping[];
   ruleDecisions: Record<string, StoredDecision>;
+  /** Agent 5 conversion rules the user approved, with the mappings that approval saved or reused (see stores/approvalWorkflow.ts). */
+  approvals: Record<string, RuleApproval>;
   proceduresAnalysed: Record<string, boolean>;
   lastError: string | null;
   reviewMapping: (id: string, decision: ReviewDecision, comment: string, mapping: ReviewedMapping) => Promise<boolean>;
@@ -21,11 +23,13 @@ interface ReviewState {
   addManualMapping: (m: Omit<ManualMapping, 'id' | 'createdAt'>) => void;
   removeManualMapping: (id: string) => void;
   reviewRule: (id: string, decision: ReviewDecision, comment: string) => Promise<boolean>;
+  /** Replace manual mappings and approval records in one update (used by the approval workflow; callers go through approvalWorkflow). */
+  setMappingState: (next: { manualMappings: ManualMapping[]; approvals: Record<string, RuleApproval> }) => void;
   toggleProcedure: (id: string) => void;
   reset: () => void;
 }
 
-const initial = { mappingDecisions: {}, manualMappings: [], ruleDecisions: {}, proceduresAnalysed: {}, lastError: null };
+const initial = { mappingDecisions: {}, manualMappings: [], ruleDecisions: {}, approvals: {}, proceduresAnalysed: {}, lastError: null };
 
 export const useReviewStore = create<ReviewState>()(
   persist(
@@ -58,13 +62,14 @@ export const useReviewStore = create<ReviewState>()(
         set({ lastError: null, ruleDecisions: { ...get().ruleDecisions, [id]: { decision, comment, at: new Date().toISOString() } } });
         return true;
       },
+      setMappingState(next) { set({ manualMappings: next.manualMappings, approvals: next.approvals }); },
       toggleProcedure(id) {
         const cur = get().proceduresAnalysed;
         set({ proceduresAnalysed: { ...cur, [id]: !cur[id] } });
       },
       reset() { set({ ...initial }); },
     }),
-    { name: 'crismac-traq-review-v1', partialize: (s) => ({ mappingDecisions: s.mappingDecisions, manualMappings: s.manualMappings, ruleDecisions: s.ruleDecisions, proceduresAnalysed: s.proceduresAnalysed }) },
+    { name: 'crismac-traq-review-v1', partialize: (s) => ({ mappingDecisions: s.mappingDecisions, manualMappings: s.manualMappings, ruleDecisions: s.ruleDecisions, approvals: s.approvals, proceduresAnalysed: s.proceduresAnalysed }) },
   ),
 );
 

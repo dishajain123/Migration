@@ -1,5 +1,6 @@
 import type { ConvertedRule, ExportCheck, RuleEdit, RuleTemplate, TraqRuleFields } from '@/types';
 import type { ExportDoc } from '../exporters';
+import { exportBlockers } from './approval';
 
 /*
  * TRAQ rule file layouts. Both are copied from real project files, not invented:
@@ -78,14 +79,32 @@ export function templateRow(t: RuleTemplate, f: TraqRuleFields): string[] {
   });
 }
 
-export type ExportScope = 'approved' | 'approved-and-pending';
+/** validated = approved AND every column confirmed (Agent 4 or documented) AND no placeholders: the only scope that is "Ready for TRAQ". */
+export type ExportScope = 'validated' | 'approved' | 'approved-and-pending';
 
 export function rulesInScope(rules: ConvertedRule[], edits: Record<string, RuleEdit>, scope: ExportScope): ConvertedRule[] {
   return rules.filter((r) => {
     const d = edits[r.id]?.decision;
     if (d === 'rejected') return false;
+    if (scope === 'validated') return exportBlockers(r, edits[r.id]).length === 0;
     return scope === 'approved' ? d === 'approved' : r.status !== 'failed' || d === 'approved';
   });
+}
+
+export interface ReadinessSplit {
+  ready: ConvertedRule[];
+  /** Everything else, with the reasons it is not Ready (rejected rules included, marked as such). */
+  pending: { rule: ConvertedRule; reasons: string[] }[];
+}
+
+/** Ready rules and the rest, using the same checks as the 'validated' scope. */
+export function splitByReadiness(rules: ConvertedRule[], edits: Record<string, RuleEdit>): ReadinessSplit {
+  const out: ReadinessSplit = { ready: [], pending: [] };
+  for (const r of rules) {
+    const reasons = exportBlockers(r, edits[r.id]);
+    if (reasons.length === 0) out.ready.push(r); else out.pending.push({ rule: r, reasons });
+  }
+  return out;
 }
 
 /** Checks run before a TRAQ file may be generated. Any error blocks the download. */
@@ -137,6 +156,12 @@ export function traqRuleDoc(t: RuleTemplate, rules: ConvertedRule[], edits: Reco
 export function conversionReportDoc(rules: ConvertedRule[], edits: Record<string, RuleEdit>, batchDate: string, generatedAt: string): ExportDoc {
   const decision = (r: ConvertedRule) => edits[r.id]?.decision ?? 'pending';
   const count = (p: (r: ConvertedRule) => boolean) => rules.filter(p).length;
+  const split = splitByReadiness(rules, edits);
+  const readyIds = new Set(split.ready.map((r) => r.id));
+  const reasonsOf = new Map(split.pending.map((p) => [p.rule.id, p.reasons]));
+  const exportStatus = (r: ConvertedRule) => (readyIds.has(r.id) ? 'Ready for TRAQ' : decision(r) === 'rejected' ? 'Rejected' : 'Pending');
+  // Ready rules first, then pending, so the two groups are separate blocks in the sheet.
+  const ordered = [...split.ready, ...split.pending.map((p) => p.rule)];
   return {
     title: 'CrisMac to TRAQ rule conversion report',
     subtitle: `${rules.length} rule(s) from ${new Set(rules.map((r) => r.procedure)).size} procedure(s)`,
@@ -150,6 +175,8 @@ export function conversionReportDoc(rules: ConvertedRule[], edits: Record<string
           ['Converted (no open issues)', count((r) => r.status === 'converted')],
           ['Needs review', count((r) => r.status === 'needs-review')],
           ['Failed', count((r) => r.status === 'failed')],
+          ['Ready for TRAQ (approved, all columns confirmed)', split.ready.length],
+          ['Not ready (pending, rejected or incomplete)', split.pending.length],
           ['Approved', count((r) => decision(r) === 'approved')],
           ['Rejected', count((r) => decision(r) === 'rejected')],
           ['Pending review', count((r) => decision(r) === 'pending')],
@@ -158,10 +185,11 @@ export function conversionReportDoc(rules: ConvertedRule[], edits: Record<string
       },
       {
         name: 'Rules',
-        columns: ['Procedure', 'CrisMac table', 'CrisMac column', 'TRAQ table', 'TRAQ column', 'Mapping', 'Status', 'Review', 'Confidence (simulated)', 'TRAQ expression', 'CrisMac logic', 'Errors', 'Warnings', 'Source lines'],
-        rows: rules.map((r) => {
+        columns: ['Export status', 'Why not ready', 'Procedure', 'CrisMac table', 'CrisMac column', 'TRAQ table', 'TRAQ column', 'Mapping', 'Status', 'Review', 'Confidence (simulated)', 'TRAQ expression', 'Original CrisMac logic', 'Errors', 'Warnings', 'Source lines'],
+        rows: ordered.map((r) => {
           const f = effectiveFields(r, edits[r.id], batchDate);
           return [
+            exportStatus(r), (reasonsOf.get(r.id) ?? []).join(' | '),
             r.procedure, r.crismacTable, r.crismacColumn, f.entity, f.column, r.target.status, r.status, decision(r), r.confidence.value,
             f.expression, r.crismacLogic,
             r.issues.filter((i) => i.severity === 'error').map((i) => i.message).join(' | '),
@@ -173,7 +201,7 @@ export function conversionReportDoc(rules: ConvertedRule[], edits: Record<string
       {
         name: 'Column mappings',
         columns: ['Rule', 'Role', 'CrisMac table', 'CrisMac column', 'TRAQ table', 'TRAQ column', 'Status', 'Basis', 'Note'],
-        rows: rules.flatMap((r) => [{ role: 'target', x: r.target }, ...r.references.map((x) => ({ role: 'reads', x }))].map(({ role, x }) => [
+        rows: ordered.flatMap((r) => [{ role: 'target', x: r.target }, ...r.references.map((x) => ({ role: 'reads', x }))].map(({ role, x }) => [
           r.id, role, x.crismacTable, x.crismacColumn, x.chosen?.table ?? '', x.chosen?.column ?? '', x.status, x.chosen?.basis ?? '', x.note,
         ])),
       },

@@ -1,4 +1,4 @@
-import { ArrowRight, Check, FileCode2, RotateCcw, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Check, DatabaseZap, FileCode2, RotateCcw, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/Dialog';
@@ -6,16 +6,23 @@ import { Badge, Button, Card, Input, Select } from '@/components/ui';
 import { decisionOf } from '@/domain/ruleConversion/views';
 import { effectiveFields } from '@/domain/ruleConversion/templates';
 import { cn } from '@/lib/cn';
+import type { RuleAssessment } from '@/domain/ruleConversion/approval';
+import { approveRules, withdrawRules, type ApprovalOutcome } from '@/stores/approvalWorkflow';
 import { useConversionStore } from '@/stores/conversionStore';
+import { useReviewStore } from '@/stores/reviewStore';
 import type { ConvertedRule, SqlFileAnalysis, TraqRuleFields } from '@/types';
 import { ConfidenceBlock, ConversionBadge, DecisionBadge, IssueList, MappingBadge, Section, SqlPreviewDialog } from './parts';
 
-export function RuleDetail({ rule, file }: { rule: ConvertedRule; file: SqlFileAnalysis | undefined }) {
+export function RuleDetail({ rule, file, assessment, onOutcome }: {
+  rule: ConvertedRule; file: SqlFileAnalysis | undefined; assessment?: RuleAssessment; onOutcome?: (o: ApprovalOutcome) => void;
+}) {
   const edits = useConversionStore((s) => s.edits);
   const batchDate = useConversionStore((s) => s.settings.effectiveStartDate);
   const editRule = useConversionStore((s) => s.editRule);
-  const decide = useConversionStore((s) => s.decide);
-  const resetRule = useConversionStore((s) => s.resetRule);
+  const approval = useReviewStore((s) => s.approvals[rule.id]);
+  const approve = () => { const res = approveRules([rule], [rule.id], 'single'); onOutcome?.(res); };
+  const reject = () => withdrawRules([rule.id], 'rejected');
+  const resetRule = (id: string) => withdrawRules([id], null);
   const [preview, setPreview] = useState<[number, number] | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const edit = edits[rule.id];
@@ -37,11 +44,21 @@ export function RuleDetail({ rule, file }: { rule: ConvertedRule; file: SqlFileA
           {edit?.traq && <Badge tone="info">Edited by hand</Badge>}
           <span className="text-xs text-muted">{rule.procedure} · {rule.stage || 'uploaded'}</span>
         </div>
-        <div className="flex flex-wrap gap-2 pt-1">
-          <Button size="sm" variant="success" onClick={() => decide([rule.id], 'approved')} disabled={decision === 'approved'}><Check size={13} /> Approve</Button>
-          <Button size="sm" variant="danger" onClick={() => decide([rule.id], 'rejected')} disabled={decision === 'rejected'}><X size={13} /> Reject</Button>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Button size="sm" variant="success" onClick={approve} disabled={decision === 'approved' || (assessment ? !assessment.eligible : false)} title={assessment && !assessment.eligible ? 'This rule cannot be approved yet; see why below.' : 'Approve this rule and save its verified mappings in Agent 4'}><Check size={13} /> Approve</Button>
+          <Button size="sm" variant="danger" onClick={reject} disabled={decision === 'rejected'}><X size={13} /> Reject</Button>
           {(edit?.traq || edit?.decision) && <Button size="sm" variant="outline" onClick={() => setConfirmReset(true)}><RotateCcw size={13} /> Reset</Button>}
+          {approval && approval.mappings.length > 0 && (
+            <span title={`${approval.mappings.length} mapping(s) saved or reused when this rule was approved`}><Badge tone="ok"><span className="inline-flex items-center gap-1"><DatabaseZap size={10} /> Mapping saved automatically</span></Badge></span>
+          )}
         </div>
+        {decision !== 'approved' && assessment && !assessment.eligible && (
+          <div role="alert" className="mt-1 rounded-md border border-warn bg-surface2 p-2 text-xs">
+            <div className="mb-1 flex items-center gap-1.5 font-medium"><AlertTriangle size={13} className="text-warn" /> Cannot be approved yet</div>
+            <ul className="list-disc space-y-0.5 pl-4 text-muted">{assessment.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
+            <Link to="/mapping" className="mt-1 inline-block text-primary hover:underline">Fix mappings in Agent 4</Link>
+          </div>
+        )}
       </div>
 
       <div key={rule.id} className="anim-fade min-h-0 flex-1 space-y-5 overflow-auto p-4">
@@ -87,6 +104,16 @@ export function RuleDetail({ rule, file }: { rule: ConvertedRule; file: SqlFileA
               ))}
             </tbody>
           </table>
+          {approval && (
+            <details className="rounded-md border border-border p-2 text-xs">
+              <summary className="cursor-pointer font-medium">Mappings recorded at approval ({approval.mappings.filter((m) => m.action === 'created').length} saved, {approval.mappings.filter((m) => m.action === 'reused').length} reused)</summary>
+              <ul className="mt-1 space-y-1">
+                {approval.mappings.map((m) => (
+                  <li key={m.key}><span className="font-mono">{m.key} → {m.targetTable}.{m.targetColumn}</span> <Badge tone={m.action === 'created' ? 'ok' : 'info'}>{m.action === 'created' ? 'saved to Agent 4' : 'reused'}</Badge><div className="text-muted">{m.evidence}</div></li>
+                ))}
+              </ul>
+            </details>
+          )}
           {rule.params.length > 0 && (
             <p className="text-xs text-muted">Parameters: {rule.params.map((p) => `${p.name} ${p.status === 'unresolved' ? '(not set)' : `-> ${p.value}`}`).join('; ')}.</p>
           )}
