@@ -15,7 +15,7 @@ function model(extra: Partial<WorkbookModel> = {}): WorkbookModel {
     col('STG_T', 'LEGACY_FLAG', 'VARCHAR2(1)'), col('STG_T', 'OVERDUE_DAYS', 'VARCHAR2(5)'), col('STG_T', 'ZZZ', 'NUMBER(5)'),
   ]);
   const lonely = tbl('STG_NOSRC', 'TRAQ', 'STAGING', [col('STG_NOSRC', 'ANYTHING', 'VARCHAR2(1)')]);
-  const src = tbl('CM_ACCT', 'CrisMac', 'SOURCE', [col('CM_ACCT', 'ACCT_NO', 'VARCHAR2(20)'), col('CM_ACCT', 'ACCT_STATUS', 'VARCHAR2(5)'), col('CM_ACCT', 'OPEN_DT', 'DATE'), col('CM_ACCT', 'AMOUNT_OVERDUE', 'NUMBER(10)')]);
+  const src = tbl('CM_ACCT', 'CrisMac', 'CRISMAC', [col('CM_ACCT', 'ACCT_NO', 'VARCHAR2(20)'), col('CM_ACCT', 'ACCT_STATUS', 'VARCHAR2(5)'), col('CM_ACCT', 'OPEN_DT', 'DATE'), col('CM_ACCT', 'AMOUNT_OVERDUE', 'NUMBER(10)')]);
   return {
     tables: [target, lonely, src],
     mappings: [

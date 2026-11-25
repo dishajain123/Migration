@@ -471,11 +471,23 @@ function traqConversionChunks(): KnowledgeChunk[] {
   ];
 }
 
+/** A guide topic longer than this is split at line breaks so one long topic cannot crowd the others out of the answer's character budget. */
+const PLATFORM_PART_CHARS = 1400;
+
 function platformChunks(topics: PlatformTopic[]): KnowledgeChunk[] {
-  return topics.map((p) => ({
-    id: `platform:${p.id}`, kind: 'platform' as const, title: p.title, text: p.text, keywords: p.keywords, entities: [], origin: 'documentation' as const,
-    sources: [{ kind: 'platform' as const, label: `Platform guide: ${p.title}`, route: p.route }],
-  }));
+  return topics.flatMap((p) => {
+    const parts: string[] = [];
+    let cur = '';
+    for (const line of p.text.split('\n')) {
+      if (cur && cur.length + line.length + 1 > PLATFORM_PART_CHARS) { parts.push(cur); cur = ''; }
+      cur = cur ? `${cur}\n${line}` : line;
+    }
+    if (cur) parts.push(cur);
+    return parts.map((text, i): KnowledgeChunk => ({
+      id: i === 0 ? `platform:${p.id}` : `platform:${p.id}:${i + 1}`, kind: 'platform', title: p.title, text, keywords: p.keywords, entities: [], origin: 'documentation',
+      sources: [{ kind: 'platform', label: `Platform guide: ${p.title}`, route: p.route }],
+    }));
+  });
 }
 
 function cleanDoc(lines: string[]): string {

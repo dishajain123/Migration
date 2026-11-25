@@ -16,7 +16,7 @@ const map = (src: string, sc: string, tt: string, tc: string, rowNo: number): Ma
 function model(): WorkbookModel {
   return {
     tables: [
-      tbl('ACCOUNT_MASTER', 'CrisMac', 'SOURCE', [col('ACCOUNT_MASTER', 'ACCT_NO', 'VARCHAR2(20)'), col('ACCOUNT_MASTER', 'CLIENT_CLASS', 'VARCHAR2(5)'), col('ACCOUNT_MASTER', 'BRANCH_NM', 'VARCHAR2(5)')]),
+      tbl('ACCOUNT_MASTER', 'CrisMac', 'CRISMAC', [col('ACCOUNT_MASTER', 'ACCT_NO', 'VARCHAR2(20)'), col('ACCOUNT_MASTER', 'CLIENT_CLASS', 'VARCHAR2(5)'), col('ACCOUNT_MASTER', 'BRANCH_NM', 'VARCHAR2(5)')]),
       tbl('STG_T', 'TRAQ', 'STAGING', [col('STG_T', 'ACCT_NUMBER', 'VARCHAR2(20)'), col('STG_T', 'CUST_SEG', 'VARCHAR2(5)')]),
     ],
     mappings: [map('ACCOUNT_MASTER', 'ACCT_NO', 'STG_T', 'ACCT_NUMBER', 1)],

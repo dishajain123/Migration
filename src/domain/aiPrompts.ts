@@ -25,7 +25,7 @@ const INSIGHT_SCHEMA = 'JSON schema: {"summary": string (2-4 sentences), "sectio
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}\n[truncated: ${s.length - n} more characters]` : s);
 const more = (shown: number, total: number) => (total > shown ? `\n[${total - shown} more not shown]` : '');
 
-function spec(task: string, schema: string, context: string, maxTokens = 4096): PromptSpec {
+export function spec(task: string, schema: string, context: string, maxTokens = 4096): PromptSpec {
   return {
     maxTokens,
     messages: [

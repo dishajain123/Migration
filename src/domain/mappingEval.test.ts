@@ -20,7 +20,7 @@ const SAME_NAME: [string, string][] = [
 ];
 
 function model(): WorkbookModel {
-  const src = tbl('CM_ACCT', 'CrisMac', 'SOURCE', [...SAME_NAME.map(([n, t], i) => col('CM_ACCT', n, t, i)), col('CM_ACCT', 'LEGACY_REF', 'VARCHAR2(8)', 20), col('CM_ACCT', 'BIG_NUM', 'NUMBER(20)', 21), col('CM_ACCT', 'EXTRA_A', 'VARCHAR2(4)', 24), col('CM_ACCT', 'EXTRA_B', 'VARCHAR2(4)', 25)]);
+  const src = tbl('CM_ACCT', 'CrisMac', 'CRISMAC', [...SAME_NAME.map(([n, t], i) => col('CM_ACCT', n, t, i)), col('CM_ACCT', 'LEGACY_REF', 'VARCHAR2(8)', 20), col('CM_ACCT', 'BIG_NUM', 'NUMBER(20)', 21), col('CM_ACCT', 'EXTRA_A', 'VARCHAR2(4)', 24), col('CM_ACCT', 'EXTRA_B', 'VARCHAR2(4)', 25)]);
   const tgt = tbl('STG_T', 'TRAQ', 'STAGING', [...SAME_NAME.map(([n, t], i) => col('STG_T', n, t, i)), col('STG_T', 'ZZ_QQ_KEY', 'VARCHAR2(8)', 20), col('STG_T', 'TRAQ_ONLY_COL', 'VARCHAR2(8)', 22, true), col('STG_T', 'MULTI', 'VARCHAR2(8)', 23)]);
   return {
     tables: [src, tgt],

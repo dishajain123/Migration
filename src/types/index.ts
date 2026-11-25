@@ -547,7 +547,7 @@ export interface ManualMapping {
   note: string;
   createdAt: string;
   /** 'rule-approval' = saved automatically when the user approved a rule that depends on it; absent/'manual' = typed in Agent 4. */
-  origin?: 'manual' | 'rule-approval';
+  origin?: 'manual' | 'rule-approval' | 'ai-accepted';
   /** Rules whose approval created or relies on this mapping (traceability; used to re-validate them if it is removed). */
   ruleIds?: string[];
   /** Why the mapping is trusted, in words (workbook row, same-name match confirmed by the reviewer, ...). */

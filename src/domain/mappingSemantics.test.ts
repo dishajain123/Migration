@@ -15,11 +15,11 @@ function model(opts: { calendar?: boolean } = {}): WorkbookModel {
   const calendar = opts.calendar !== false;
   const tables = [
     tbl('STG_D', 'TRAQ', 'STAGING', [col('STG_D', 'BUSINESS_DATE', 'DATE'), col('STG_D', 'RECORD_START_DATE', 'DATE'), col('STG_D', 'BRANCH_COUNT', 'NUMBER(5)')]),
-    tbl('CM_FEED', 'CrisMac', 'SOURCE', [col('CM_FEED', 'TIMEKEY', 'int'), col('CM_FEED', 'EFFECTIVEFROMTIMEKEY', 'int'), col('CM_FEED', 'BRANCHKEY', 'int'), col('CM_FEED', 'OTHER', 'varchar(5)')]),
-    tbl('DimA', 'CrisMac', 'SOURCE', [col('DimA', 'EffectiveFromTimeKey', 'int'), col('DimA', 'EffectiveToTimeKey', 'int'), col('DimA', 'BranchKey', 'int'), col('DimA', 'BranchCode', 'varchar(5)'), col('DimA', 'FromDate', 'datetime')]),
+    tbl('CM_FEED', 'CrisMac', 'CRISMAC', [col('CM_FEED', 'TIMEKEY', 'int'), col('CM_FEED', 'EFFECTIVEFROMTIMEKEY', 'int'), col('CM_FEED', 'BRANCHKEY', 'int'), col('CM_FEED', 'OTHER', 'varchar(5)')]),
+    tbl('DimA', 'CrisMac', 'CRISMAC', [col('DimA', 'EffectiveFromTimeKey', 'int'), col('DimA', 'EffectiveToTimeKey', 'int'), col('DimA', 'BranchKey', 'int'), col('DimA', 'BranchCode', 'varchar(5)'), col('DimA', 'FromDate', 'datetime')]),
     tbl('FCT_OTHER', 'TRAQ', 'MART', [col('FCT_OTHER', 'RECORD_START_DATE', 'DATE')]),
   ];
-  if (calendar) tables.push(tbl('SysDayMatrix', 'CrisMac', 'SOURCE', [col('SysDayMatrix', 'TimeKey', 'int'), col('SysDayMatrix', 'Date', 'datetime'), col('SysDayMatrix', 'WeekDateKey', 'int')]));
+  if (calendar) tables.push(tbl('SysDayMatrix', 'CrisMac', 'CRISMAC', [col('SysDayMatrix', 'TimeKey', 'int'), col('SysDayMatrix', 'Date', 'datetime'), col('SysDayMatrix', 'WeekDateKey', 'int')]));
   return {
     tables,
     mappings: [

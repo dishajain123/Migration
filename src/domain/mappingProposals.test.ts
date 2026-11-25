@@ -10,7 +10,7 @@ const row: MappingRow = { id: 'm1', sourceSystem: 'X', sourceTable: 'CM_ACCT', s
 
 const model = {
   tables: [
-    tbl('CM_ACCT', 'CrisMac', 'SOURCE', [col('CM_ACCT', 'ACCT_NO', 'VARCHAR2(20)'), col('CM_ACCT', 'STATUS_CD', 'VARCHAR2(2)'), col('CM_ACCT', 'FIRST_NM', 'VARCHAR2(30)'), col('CM_ACCT', 'LAST_NM', 'VARCHAR2(30)'), col('CM_ACCT', 'OPEN_DT', 'DATE')]),
+    tbl('CM_ACCT', 'CrisMac', 'CRISMAC', [col('CM_ACCT', 'ACCT_NO', 'VARCHAR2(20)'), col('CM_ACCT', 'STATUS_CD', 'VARCHAR2(2)'), col('CM_ACCT', 'FIRST_NM', 'VARCHAR2(30)'), col('CM_ACCT', 'LAST_NM', 'VARCHAR2(30)'), col('CM_ACCT', 'OPEN_DT', 'DATE')]),
     tbl('STG_T', 'TRAQ', 'STAGING', [col('STG_T', 'ACCT_NUMBER', 'VARCHAR2(20)'), col('STG_T', 'STATUS_DESC', 'VARCHAR2(10)'), col('STG_T', 'FULL_NAME', 'VARCHAR2(61)'), col('STG_T', 'OPENED_ON', 'DATE'), col('STG_T', 'LOAN_AMOUNT', 'NUMBER(10)'), col('STG_T', 'MISC', 'VARCHAR2(5)')]),
   ],
   mappings: [row], unmapped: [], daRules: [], decisionRows: [], sheets: [], outOfScope: [], loadedAt: '',

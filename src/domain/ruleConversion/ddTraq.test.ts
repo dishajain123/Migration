@@ -279,11 +279,13 @@ describe('"Names only" audit mode', () => {
 
 describe('coverage and blockers', () => {
   it('ranks the columns and parameters that block the most rules, and counts ready rules per procedure', () => {
-    const waiting = (col: string, expr: string) => migrateDdRows(model, 'Final', DD_HEADER, [rowOf(col, expr, 'Date')], [])[0];
+    // One call per procedure: rule ids are `procedure::row`, so separate calls would give every rule the same id.
     const rules = [
-      waiting('IntNotServicedDt', 'IF(@FlgPreErosion == "N")THEN("AccountCal"."IntNotServicedDt")ELSE(NULL)'),
-      waiting('IntNotServicedDt', 'IF(@FlgPreErosion == "Y")THEN("AccountCal"."IntNotServicedDt")ELSE("OTHER"."X")'),
-      waiting('IntNotServicedDt', 'IF("OTHER"."X" == "Y")THEN("AccountCal"."IntNotServicedDt")ELSE(NULL)'),
+      ...migrateDdRows(model, 'Final', DD_HEADER, [
+        rowOf('IntNotServicedDt', 'IF(@FlgPreErosion == "N")THEN("AccountCal"."IntNotServicedDt")ELSE(NULL)', 'Date'),
+        rowOf('IntNotServicedDt', 'IF(@FlgPreErosion == "Y")THEN("AccountCal"."IntNotServicedDt")ELSE("OTHER"."X")', 'Date'),
+        rowOf('IntNotServicedDt', 'IF("OTHER"."X" == "Y")THEN("AccountCal"."IntNotServicedDt")ELSE(NULL)', 'Date'),
+      ], []),
       migrateDdRows(model, 'DPD', DD_HEADER, [rowOf('IntNotServicedDt', 'IF(ISNOTEMPTY("AccountCal"."IntNotServicedDt"))THEN("AccountCal"."IntNotServicedDt")ELSE(NULL)', 'Date')], [])[0],
     ];
     const b = blockingColumns(rules);

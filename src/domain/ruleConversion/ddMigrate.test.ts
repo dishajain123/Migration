@@ -50,7 +50,7 @@ describe('dd_export migration to TRAQ names', () => {
     expect(apart.rows).toHaveLength(1);
     expect(apart.rows[0].slice(1, 10)).toEqual(pending.original);
     expect(apart.rows[0][10]).toBe('DIMPRODUCT.SchemeType');
-    const all = JSON.stringify([ready.rows, apart.rows]);
+    const all = [ready.rows, apart.rows].flat(2).join('\n'); // not JSON: its nested arrays always contain "[["
     expect(all).not.toMatch(/\[\[|UNMAPPED/i);
   });
 

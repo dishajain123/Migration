@@ -47,7 +47,8 @@ async function boot(storage: FakeStorage) {
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
-describe('approval workflow (shared by Rules, Agent 4 and export)', () => {
+// Every test re-imports the stores after vi.resetModules() (a cold import of the workbook-heavy graph, several seconds), so 5 s is too tight.
+describe('approval workflow (shared by Rules, Agent 4 and export)', { timeout: 30_000 }, () => {
   it('approving a rule approves it and saves its verified mapping in Agent 4 in one step', async () => {
     const { wf, review, conv, selectReviewed } = await boot(new FakeStorage());
     const out = wf.approveRules([A, B, BAD], [A.id], 'single');

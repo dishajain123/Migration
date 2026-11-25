@@ -9,7 +9,7 @@ const row = (over: Partial<MappingRow>): MappingRow => ({ id: 'm', sourceSystem:
 
 const model = {
   tables: [
-    { name: 'CM_ACCT', system: 'CrisMac', layer: 'SOURCE', columns: [col('CM_ACCT', 'ACCT_NO', 'VARCHAR2(20)'), col('CM_ACCT', 'BRANCH_CODE', 'VARCHAR2(10)'), col('CM_ACCT', 'BRANCH_NAME', 'VARCHAR2(30)')] } as TableDef,
+    { name: 'CM_ACCT', system: 'CrisMac', layer: 'CRISMAC', columns: [col('CM_ACCT', 'ACCT_NO', 'VARCHAR2(20)'), col('CM_ACCT', 'BRANCH_CODE', 'VARCHAR2(10)'), col('CM_ACCT', 'BRANCH_NAME', 'VARCHAR2(30)')] } as TableDef,
     { name: 'STG_T', system: 'TRAQ', layer: 'STAGING', columns: [col('STG_T', 'ACCT_NUMBER', 'VARCHAR2(20)'), col('STG_T', 'BRANCH_CODE', 'VARCHAR2(10)')] } as TableDef,
   ],
   mappings: [

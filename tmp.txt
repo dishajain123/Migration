@@ -1,0 +1,62 @@
+
+ RUN  v2.1.5 /mnt/c/projects/Migration
+
+ ✓ src/domain/mappingEngine.test.ts (11 tests) 18ms
+ ✓ src/domain/mappingProposals.test.ts (10 tests) 16ms
+ ✓ src/domain/mappingEnrichment.test.ts (10 tests) 28ms
+ ✓ src/domain/mappingSemantics.test.ts (7 tests) 24ms
+ ✓ src/domain/ruleConversion/ddTraq.test.ts (27 tests) 54ms
+ ✓ src/domain/ruleConversion/approval.test.ts (15 tests) 32ms
+ ✓ server/src/jobs/jobRunner.test.ts (9 tests) 31ms
+ ✓ src/domain/chat.test.ts (12 tests) 22ms
+ ✓ src/domain/ruleConversion/ruleConversion.test.ts (31 tests) 55ms
+ ✓ server/src/chat.test.ts (17 tests) 58ms
+ ✓ server/src/gateway.test.ts (19 tests) 540ms
+   ✓ test connection > times out 502ms
+stdout | src/domain/mappingEval.test.ts > baseline on the real workbook > reports precision / recall / ambiguity and a monotone calibration
+
+Holdout evaluation (5-fold, deterministic) - documented DIRECT/RENAME 1:1 mappings hidden, then re-suggested
+  held-out cases        418  (documented source column in the candidate pool: 408, 97.6%)
+  proposed a mapping    399  (coverage 95.5%)
+  correct top-1         340
+  precision             85.2%   (unambiguous only 93.0%; ambiguous top-1 20.9%)
+  recall                81.3%   (of reachable 83.3%; documented answer in top 3 86.4%)
+  ambiguity rate        10.8%   (43 of 399 proposals)
+  engine verdicts       ambiguous=43, suggested=356, no-match=17, below-threshold=1, insufficient-context=1
+  calibration (raw score band -> measured precision):
+    pooled: [0.35-0.50) n=120 -> 65%  [0.50-0.65) n=51 -> 77%  [0.65-0.80) n=16 -> 93%  [0.80-1.00) n=212 -> 98%
+    clear: [0.35-0.50) n=85 -> 83%  [0.50-0.65) n=45 -> 87%  [0.65-0.80) n=16 -> 94%  [0.80-1.00) n=210 -> 99%
+    ambiguous: [0.35-0.50) n=35 -> 20%  [0.50-0.65) n=6 -> 20%  [0.65-0.80) n=0 -> 21%  [0.80-1.00) n=2 -> 35%
+
+
+ ✓ src/domain/mappingEval.test.ts (15 tests) 1218ms
+   ✓ baseline on the real workbook > reports precision / recall / ambiguity and a monotone calibration 1160ms
+ ✓ src/domain/sqlParse.test.ts (10 tests) 10ms
+ ✓ src/domain/transformValidator.test.ts (19 tests) 28ms
+ ✓ src/domain/lineageFlow.test.ts (11 tests) 20ms
+ ✓ src/domain/decisionEval.test.ts (5 tests) 20ms
+ ✓ src/domain/parse.test.ts (12 tests) 9ms
+ ✓ src/domain/profile.test.ts (7 tests) 12ms
+ ✓ src/domain/ruleConversion/ddMigrate.test.ts (5 tests) 22ms
+ ✓ src/domain/ruleConversion/gaps.test.ts (3 tests) 8ms
+ ✓ server/src/mappingDecisions/decisionStore.test.ts (5 tests) 22ms
+ ✓ server/src/retrieval/schemaEmbeddings.test.ts (6 tests) 14ms
+ ✓ server/src/guardrails/guardrails.test.ts (9 tests) 14ms
+ ✓ src/domain/exporters/exporters.test.ts (6 tests) 9ms
+ ✓ src/features/aiSettings/formModel.test.ts (3 tests) 5ms
+ ✓ src/domain/aiPrompts.test.ts (5 tests) 10ms
+ ✓ src/auth/validation.test.ts (3 tests) 4ms
+ ✓ src/stores/approvalWorkflow.test.ts (7 tests) 13852ms
+   ✓ approval workflow (shared by Rules, Agent 4 and export) > approving a rule approves it and saves its verified mapping in Agent 4 in one step 9004ms
+   ✓ approval workflow (shared by Rules, Agent 4 and export) > Approve all / selected: approves the eligible rules, reports the ineligible with a reason, saves each mapping once 884ms
+   ✓ approval workflow (shared by Rules, Agent 4 and export) > does not reprocess or duplicate on a second approval 781ms
+   ✓ approval workflow (shared by Rules, Agent 4 and export) > keeps decisions, mappings and approval records after a refresh or restart 1368ms
+   ✓ approval workflow (shared by Rules, Agent 4 and export) > removing a mapping in Agent 4 sends the rules that relied on it back to review 828ms
+   ✓ approval workflow (shared by Rules, Agent 4 and export) > rejecting a rule withdraws its approval record but leaves the mapping in Agent 4 572ms
+   ✓ approval workflow (shared by Rules, Agent 4 and export) > is all-or-nothing: if persisting fails, no rule is approved and no mapping is left behind 414ms
+
+ Test Files  28 passed (28)
+      Tests  299 passed (299)
+   Start at  07:29:40
+   Duration  17.39s (transform 25.13s, setup 0ms, collect 47.47s, tests 16.16s, environment 9ms, prepare 47.30s)
+

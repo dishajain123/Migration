@@ -11,7 +11,7 @@ import { useEnrichment } from '@/stores/enrichmentStore';
 import { selectReviewedMappings, useReviewStore } from '@/stores/reviewStore';
 import { EnrichmentPanel } from './EnrichmentPanel';
 import { ProposalsPanel } from './ProposalsPanel';
-import type { ColumnAnalysis, MappingIssueSummary, MappingRow, ColumnMappingStatus, Suggestion } from '@/types';
+import type { ColumnAnalysis, MappingIssueSummary, MappingRow, ColumnMappingStatus, ReviewDecision, Suggestion } from '@/types';
 
 type Tab = 'suggestions' | 'documented' | 'unfed' | 'manual';
 
@@ -113,7 +113,7 @@ function Suggestions({ table }: { table: string }) {
   return (
     <AsyncView state={state} isEmpty={(d) => d.length === 0} emptyMessage="No candidate source columns scored above the heuristic threshold for this table.">
       {(all) => {
-        const stat = (s: Suggestion) => decisions[s.id]?.decision ?? 'pending';
+        const stat = (s: Suggestion): 'pending' | ReviewDecision => decisions[s.id]?.decision ?? 'pending';
         const rows = all.filter((s) => s.confidence >= min && (status === 'all' || stat(s) === status));
         const pendingCount = rows.filter((s) => stat(s) === 'pending').length;
         const mk = (s: Suggestion) => ({ id: s.id, targetTable: s.targetTable, targetColumn: s.targetColumn, targetType: s.targetType, sourceTable: s.sourceTable, sourceColumn: s.sourceColumn, sourceType: s.sourceType });
@@ -339,6 +339,7 @@ function Manual({ table }: { table: string }) {
                 <div>
                   <span className="font-mono">{m.targetColumn}</span> ← <span className="font-mono">{m.sourceTable}.{m.sourceColumn}</span>
                   {m.origin === 'rule-approval' && <> <Badge tone="ok">Saved from rule approval</Badge></>}
+                  {m.origin === 'ai-accepted' && <> <Badge tone="info">AI draft, accepted by reviewer</Badge></>}
                   {m.note && <div className="text-muted">{m.note}</div>}
                   {m.ruleIds && m.ruleIds.length > 0 && <div className="text-muted">Rule{m.ruleIds.length > 1 ? 's' : ''}: <span className="font-mono">{m.ruleIds.join(', ')}</span></div>}
                 </div>

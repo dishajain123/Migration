@@ -5,8 +5,8 @@ import { validateTransformation } from './transformValidator';
 const col = (table: string, name: string, dataType: string, n = 0): ColumnDef => ({ id: `${table}.${name}`, table, name, dataType, nullable: true, ordinal: n, traqOnly: false, sheet: 's', rowNo: n });
 const model = {
   tables: [
-    { name: 'CM_ACCT', system: 'CrisMac', layer: 'SOURCE', columns: [col('CM_ACCT', 'ACCT_NO', 'VARCHAR2(20)'), col('CM_ACCT', 'STATUS_CD', 'VARCHAR2(2)'), col('CM_ACCT', 'FIRST_NM', 'VARCHAR2(30)'), col('CM_ACCT', 'LAST_NM', 'VARCHAR2(30)'), col('CM_ACCT', 'OPEN_DT', 'INT')] } as TableDef,
-    { name: 'OTHER', system: 'CrisMac', layer: 'SOURCE', columns: [col('OTHER', 'SECRET', 'VARCHAR2(5)')] } as TableDef,
+    { name: 'CM_ACCT', system: 'CrisMac', layer: 'CRISMAC', columns: [col('CM_ACCT', 'ACCT_NO', 'VARCHAR2(20)'), col('CM_ACCT', 'STATUS_CD', 'VARCHAR2(2)'), col('CM_ACCT', 'FIRST_NM', 'VARCHAR2(30)'), col('CM_ACCT', 'LAST_NM', 'VARCHAR2(30)'), col('CM_ACCT', 'OPEN_DT', 'INT')] } as TableDef,
+    { name: 'OTHER', system: 'CrisMac', layer: 'CRISMAC', columns: [col('OTHER', 'SECRET', 'VARCHAR2(5)')] } as TableDef,
   ],
   mappings: [], unmapped: [], daRules: [], decisionRows: [], sheets: [], outOfScope: [], loadedAt: '',
 } as WorkbookModel;

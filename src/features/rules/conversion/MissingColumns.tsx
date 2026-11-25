@@ -7,6 +7,7 @@ import { findGaps, gapsDoc, GAP_LABEL, type ColumnGap, type GapKind, type GapRep
 import { useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
 import { useConversionStore } from '@/stores/conversionStore';
+import { AiGapMapping } from './AiGapMapping';
 import { selectReviewedMappings, useReviewStore } from '@/stores/reviewStore';
 import type { ApiResult, ConversionResult, ConvertedRule } from '@/types';
 
@@ -62,9 +63,10 @@ function Gaps({ rules, edits }: { rules: ConvertedRule[]; edits: ReturnType<type
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted">
-        Read-only. These are rules from your uploaded SQL that cannot be converted because a CrisMac column they write or read has no confirmed TRAQ column.
+        These are rules from your uploaded SQL that cannot be converted because a CrisMac column they write or read has no confirmed TRAQ column.
         Nothing is guessed: to unblock a rule, add the mapping in <Link to="/mapping" className="text-primary hover:underline">Agent 4</Link> (or the workbook) and it drops off this list.
       </p>
+      <AiGapMapping gaps={report.columns} rules={rules} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Stat label="Rules blocked" value={s.rulesWithGap} hint={`of ${s.totalRules} rules`} />
         <Stat label="Missing columns" value={s.columns} hint={`${s.writeGaps} are rule targets`} />

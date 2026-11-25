@@ -104,7 +104,7 @@ export function ProposalsPanel({ table }: { table: string }) {
               <div>{state.message}{CONFIG_CODES.has(state.code) && <> <Link to="/ai-settings" className="font-medium underline">Open AI Settings</Link></>}</div>
             </div>
           )}
-          {state.status === 'success' && <><ProposalTable set={state.set} /><p className="mt-2 text-[11px] text-muted">{state.meta.note} Latency {state.meta.latencyMs} ms.</p></></>}
+          {state.status === 'success' && <><ProposalTable set={state.set} /><p className="mt-2 text-[11px] text-muted">{state.meta.note} Latency {state.meta.latencyMs} ms.</p></>}
         </div>
       </Card>
       <BulkRun />

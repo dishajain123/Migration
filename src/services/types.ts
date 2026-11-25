@@ -1,8 +1,10 @@
 import type {
   ApiResult, BusinessRule, CatalogEntry, ConversionRequest, ConversionResult, ConversionSettings, FlowRequest, LineageFlow, RuleTemplate, SqlFileAnalysis, UploadedSql, ChatAnswer, ChatRequest, DdExport, DdMigrationResult, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
   MappingRow, ProcObject, Relationship, ReviewDecision, ScopeInfo, SqlAnalysis, Suggestion, SystemKind, TableComparison, TableDetail,
-  TableSummary, TableAnalysis, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel, ReviewedMapping,
+  TableSummary, TableAnalysis, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel, ReviewedMapping, ConvertedRule,
 } from '@/types';
+import type { GapMappingSet } from '@/domain/ruleConversion/aiGapMapping';
+import type { ColumnGap } from '@/domain/ruleConversion/gaps';
 import type { AiInsight, ChatStreamEvent, ModelChoice, ProviderId } from '@/types/ai';
 import type { MappingDecisionRecord } from '@/types/decisions';
 import type { MappingJobStatus } from '@/types/jobs';
@@ -103,6 +105,11 @@ export interface AgentAiService {
    * missed; every proposal is validated against the schema before it is returned, as an AI_DRAFT for human review.
    */
   proposeMappings(table: string, o?: ModelChoice, enrich?: EnrichmentOptions): Promise<ApiResult<MappingProposalSet>>;
+  /**
+   * Agent 5 "Missing in TRAQ": proposes a TRAQ column for each CrisMac column that blocks a rule. The model only sees the
+   * in-scope TRAQ columns; picks outside them or with incompatible types are dropped. Drafts only: nothing is saved until accepted.
+   */
+  proposeGapMappings(req: { gaps: ColumnGap[]; rules: ConvertedRule[] }, o?: ModelChoice): Promise<ApiResult<GapMappingSet>>;
   /** Embeds this table's unfed columns and candidate source columns through the gateway (needs an OpenAI or Gemini key). */
   buildEmbeddingIndex(table: string, profile?: ProfileMetadata): Promise<ApiResult<EmbeddingIndex>>;
   reviewValidation(reviewed: ReviewedMapping[], o?: ModelChoice): Promise<ApiResult<AiInsight>>;
@@ -112,8 +119,8 @@ export interface AgentAiService {
 export interface AssistantService {
   askStream(
     req: ChatRequest, onEvent: (e: ChatStreamEvent) => void, opts?: { override?: ModelChoice; signal?: AbortSignal },
-  ): Promise<ApiResult<{ kind: 'grounded' | 'not-found' | 'smalltalk'; provider?: ProviderId; model?: string }>>;
-  getSuggestedQuestions(route?: string): Promise<ApiResult<string[]>>;
+  ): Promise<ApiResult<{ kind: 'grounded' | 'not-found' | 'smalltalk'; provider?: ProviderId; model?: string; warning?: 'unverified-claim' | 'fabricated-citation' }>>;
+getSuggestedQuestions(route?: string): Promise<ApiResult<string[]>>;
 }
 
 /**

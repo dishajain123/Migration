@@ -124,7 +124,7 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
       <Card>
         <CardHeader title="Preview" subtitle={`${template.name} · first ${Math.min(PREVIEW_ROWS, inScope.length)} of ${inScope.length} row(s), exactly as they will be written (* = mandatory)`} />
         {inScope.length === 0 ? (
-          <p className="p-6 text-center text-sm text-muted">{scope === 'approved' ? scope === 'validated' ? 'No rule is Ready yet. Approve rules in step 4 (every column must be confirmed), or widen the scope.' : 'No approved rules yet. Approve rules in step 4, or include pending rules.' : 'No rules in scope.'}</p>
+          <p className="p-6 text-center text-sm text-muted">{scope === 'validated' ? 'No rule is Ready yet. Approve rules in step 4 (every column must be confirmed), or widen the scope.' : scope === 'approved' ? 'No approved rules yet. Approve rules in step 4, or include pending rules.' : 'No rules in scope.'}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">

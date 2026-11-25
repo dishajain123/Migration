@@ -15,7 +15,7 @@ export function parseChatRequest(b: Record<string, unknown>): ChatStreamRequest 
   if (q.length > 4000) throw bad('question is too long (max 4000 characters).');
   const history = Array.isArray(b.history) ? b.history : [];
   if (history.length > 40) throw bad('history is too long.');
-  const turns = history.map((t) => {
+  const turns = history.map((t): ChatStreamRequest['history'][number] => {
     if (!isObj(t) || (t.role !== 'user' && t.role !== 'assistant') || typeof t.text !== 'string') throw bad('history items must be { role, text }.');
     return { role: t.role, text: t.text.slice(0, 8000) };
   });

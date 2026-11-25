@@ -128,9 +128,9 @@ function buildRule(
       value = { k: 'col', parts: [table, column] };
       issues.push({ severity: 'error', code: 'TOO_COMPLEX', message: `From step ${step.index} on, the composed logic grew too large to inline; later statements read the column's stored value instead of the earlier steps' result. Split it into Temporary variables.` });
     }
-    const current = value;
-    const sub = (x: Expr) => (step.type === 'UPDATE' || step.type === 'MERGE' ? mapExpr(x, (n) => (isSelf(n) ? current : n)) : x);
-    const rhs = sub(qualify(tryParse(text, `value of ${column} at line ${step.lineStart}`, issues) as Expr, step, index));
+    const current: Expr = value;
+    const sub = (x: Expr): Expr => (step.type === 'UPDATE' || step.type === 'MERGE' ? mapExpr(x, (n: Expr): Expr => (isSelf(n) ? current : n)) : x);
+    const rhs: Expr = sub(qualify(tryParse(text, `value of ${column} at line ${step.lineStart}`, issues) as Expr, step, index));
 
     const conds: Expr[] = [];
     for (const g of step.guards ?? []) {

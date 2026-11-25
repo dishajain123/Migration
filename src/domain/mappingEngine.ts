@@ -343,7 +343,9 @@ export function analyseTable(model: WorkbookModel, tableName: string, procs?: Pr
       let best: CandidateTrace | undefined = accepted[0];
       if (accepted.length > 0) status = accepted[1] && accepted[0].score - accepted[1].score < AMBIGUITY_GAP ? 'ambiguous' : 'suggested';
       else {
-        best = scored[0];
+        // Nothing was accepted. Show the closest NAME near-miss (or the best-evidenced candidate) rather than whichever column
+        // merely shares the target's data type, which can outrank it on score alone and would hide it as "no match".
+        best = scored.find((c) => c.nameScore >= NEAR_MISS_NAME || c.evidence.length > 0) ?? scored[0];
         if (declared) status = 'declared-unmapped';
         else if (items.length === 0) status = 'insufficient-context';
         else if (best && (best.nameScore >= NEAR_MISS_NAME || best.evidence.length > 0)) status = 'below-threshold';
