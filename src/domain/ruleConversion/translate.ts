@@ -30,7 +30,7 @@ const CMP_OUT: Record<string, string> = { '=': '==', '<>': '!=', '!=': '!=', '<'
 const CMP_NEG: Record<string, string> = { '=': '<>', '<>': '=', '!=': '=', '<': '>=', '>': '<=', '<=': '>', '>=': '<' };
 const DAY_PARTS = new Set(['DAY', 'DD', 'D', 'DY', 'DAYOFYEAR']);
 // Same name and argument order in both languages (TRAQ Derived Attributes rule reference, Functions palette).
-const EVIDENCED_FUNCTIONS = new Set(['COALESCE', 'ISEMPTY', 'ISNOTEMPTY', 'TRIM', 'TODATE', 'DATEDIFF', 'UPPER', 'LOWER', 'LEN', 'ROUND', 'REPLACE', 'CONCAT']);
+export const EVIDENCED_FUNCTIONS = new Set(['COALESCE', 'ISEMPTY', 'ISNOTEMPTY', 'TRIM', 'TODATE', 'DATEDIFF', 'UPPER', 'LOWER', 'LEN', 'ROUND', 'REPLACE', 'CONCAT']);
 const AGGREGATES = new Set(['SUM', 'COUNT', 'AVG', 'MAX', 'MIN', 'STRING_AGG']);
 const SCD2_BOUNDARY_RE = /EFFECTIVE_?(?:FROM|TO)TIMEKEY|RECORD_(?:START|END)_DATE/i;
 

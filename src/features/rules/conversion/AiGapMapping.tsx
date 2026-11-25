@@ -26,9 +26,17 @@ export function AiGapMapping({ gaps, rules }: { gaps: ColumnGap[]; rules: Conver
   const gapSig = gaps.map((g) => g.key).join('|');
   useEffect(() => { setState({ status: 'idle' }); }, [gapSig]);
 
-  const go = async () => {
+  const [applied, setApplied] = useState<number | null>(null);
+  const go = async (applyAll = false) => {
     setState({ status: 'loading' });
+    setApplied(null);
     const r = await withRateLimitRecovery((o) => services.ai.proposeGapMappings({ gaps, rules }, o));
+    if (r.data && applyAll) {
+      const store = useReviewStore.getState();
+      const fresh = r.data.proposals.filter((p) => !store.manualMappings.some((m) => sameMapping(m, p)));
+      for (const p of fresh) store.addManualMapping(toManual(p, 'auto-applied by request'));
+      setApplied(fresh.length);
+    }
     setState(r.data ? { status: 'success', set: r.data, meta: r.meta } : { status: 'error', code: r.error?.code ?? 'ERROR', message: r.error?.message ?? 'The AI request failed.' });
   };
 
@@ -40,6 +48,9 @@ export function AiGapMapping({ gaps, rules }: { gaps: ColumnGap[]; rules: Conver
         right={(
           <div className="flex items-center gap-2">
             {state.status === 'success' && state.meta.provider && <Badge tone="primary">AI · {state.meta.provider} · {state.meta.model}</Badge>}
+            <Button size="sm" onClick={() => void go(true)} disabled={state.status === 'loading' || gaps.length === 0} title="Runs the AI and saves every proposal that passes the validators as an Agent 4 mapping labelled as AI">
+              <Sparkles size={13} /> Map with AI and apply
+            </Button>
             <Button size="sm" variant={state.status === 'success' ? 'outline' : 'default'} onClick={() => void go()} disabled={state.status === 'loading' || gaps.length === 0}>
               {state.status === 'loading' ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
               {state.status === 'loading' ? 'Working...' : state.status === 'success' ? 'Regenerate' : `Propose mappings for ${gaps.length} column(s)`}
@@ -56,29 +67,36 @@ export function AiGapMapping({ gaps, rules }: { gaps: ColumnGap[]; rules: Conver
             <div>{state.message}{CONFIG_CODES.has(state.code) && <> <Link to="/ai-settings" className="font-medium underline">Open AI Settings</Link></>}</div>
           </div>
         )}
+        {state.status === 'success' && applied !== null && (
+          <p role="status" className="mb-2 rounded-md bg-okbg px-3 py-2 text-ok">Applied {applied} AI mapping(s) as Agent 4 mappings. Rules that now have every column confirmed move forward; approve them in step 4. Columns the AI could not map stay listed below and keep showing the CrisMac logic.</p>
+        )}
         {state.status === 'success' && <Proposals set={state.set} note={state.meta.note} />}
       </div>
     </Card>
   );
 }
 
+type Manual = ReturnType<typeof useReviewStore.getState>['manualMappings'][number];
+
+const sameMapping = (m: Manual, p: GapMappingProposal) => m.sourceTable.toUpperCase() === p.crismacTable.toUpperCase() && m.sourceColumn.toUpperCase() === p.crismacColumn.toUpperCase()
+  && m.targetTable === p.traqTable && m.targetColumn === p.traqColumn;
+
+const toManual = (p: GapMappingProposal, how: string) => ({
+  targetTable: p.traqTable, targetColumn: p.traqColumn, targetType: p.traqType, sourceTable: p.crismacTable, sourceColumn: p.crismacColumn, sourceType: '',
+  note: `AI draft ${how} (AI estimate ${p.confidence}%): ${p.reason}`, origin: 'ai-accepted' as const,
+  evidence: `AI proposal ${how}. ${p.typeNote}.`,
+});
+
 function Proposals({ set, note }: { set: GapMappingSet; note?: string }) {
   const manual = useReviewStore((s) => s.manualMappings);
   const add = useReviewStore((s) => s.addManualMapping);
-  const exists = (p: GapMappingProposal) => manual.some((m) => m.sourceTable.toUpperCase() === p.crismacTable.toUpperCase() && m.sourceColumn.toUpperCase() === p.crismacColumn.toUpperCase()
-    && m.targetTable === p.traqTable && m.targetColumn === p.traqColumn);
+  const exists = (p: GapMappingProposal) => manual.some((m) => sameMapping(m, p));
   const [skip, setSkip] = useState<Set<string>>(new Set());
   const open = set.proposals.filter((p) => !exists(p));
   const chosen = open.filter((p) => !skip.has(p.gapKey));
 
   const save = (list: GapMappingProposal[]) => {
-    for (const p of list) {
-      add({
-        targetTable: p.traqTable, targetColumn: p.traqColumn, targetType: p.traqType, sourceTable: p.crismacTable, sourceColumn: p.crismacColumn, sourceType: '',
-        note: `AI draft accepted by reviewer (AI estimate ${p.confidence}%): ${p.reason}`, origin: 'ai-accepted',
-        evidence: `AI proposal accepted by the reviewer. ${p.typeNote}.`,
-      });
-    }
+    for (const p of list) add(toManual(p, 'accepted by reviewer'));
   };
   const toggle = (k: string) => setSkip((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 

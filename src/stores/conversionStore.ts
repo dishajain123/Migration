@@ -18,6 +18,7 @@ interface ConversionState {
   setSettings: (patch: Partial<ConversionSettings>) => void;
   setTemplate: (id: RuleTemplate['id']) => void;
   editRule: (id: string, patch: Partial<TraqRuleFields>) => void;
+  applyAiRules: (items: { ruleId: string; expression: string; explanation: string; confidence: number }[], by: { provider: string; model: string }) => void;
   decide: (ids: string[], decision: RuleDecision | null, comment?: string) => void;
   resetRule: (id: string) => void;
   resetAllEdits: () => void;
@@ -43,6 +44,17 @@ export const useConversionStore = create<ConversionState>()(
       editRule(id, patch) {
         const cur = get().edits[id];
         set({ edits: { ...get().edits, [id]: { ...cur, traq: { ...(cur?.traq ?? {}), ...patch }, editedAt: now() } } });
+      },
+      applyAiRules(items, by) {
+        const next = { ...get().edits };
+        for (const it of items) {
+          const cur = next[it.ruleId];
+          next[it.ruleId] = {
+            ...cur, traq: { ...(cur?.traq ?? {}), expression: it.expression, explanation: it.explanation },
+            aiConverted: { provider: by.provider, model: by.model, confidence: it.confidence }, editedAt: now(),
+          };
+        }
+        set({ edits: next });
       },
       decide(ids, decision, comment) {
         const next = { ...get().edits };

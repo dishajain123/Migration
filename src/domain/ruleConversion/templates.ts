@@ -79,13 +79,40 @@ export function templateRow(t: RuleTemplate, f: TraqRuleFields): string[] {
   });
 }
 
-/** validated = approved AND every column confirmed (Agent 4 or documented) AND no placeholders: the only scope that is "Ready for TRAQ". */
-export type ExportScope = 'validated' | 'approved' | 'approved-and-pending';
+/**
+ * validated = approved AND every column confirmed (Agent 4 or documented) AND no placeholders: the only scope that is "Ready for TRAQ".
+ * demo = every rule that is not rejected; rules that are not Ready carry their CrisMac logic as written (see `demoFields`).
+ */
+export type ExportScope = 'validated' | 'approved' | 'approved-and-pending' | 'demo';
+
+/** Why a rule is not complete, ignoring whether a reviewer has approved it yet. */
+export function incompleteReasons(rule: ConvertedRule, edit: RuleEdit | undefined): string[] {
+  return exportBlockers(rule, edit).filter((x) => x !== 'Not approved yet');
+}
+
+/**
+ * Fields for a demo export. A complete rule is written as usual. An incomplete one keeps the original CrisMac logic verbatim
+ * (nothing translated or guessed), prefixed with a comment that says it is not migrated and why, and falls back to the CrisMac
+ * table/column names where no TRAQ target exists. Not valid TRAQ syntax by design: it is for review, not for loading.
+ */
+export function demoFields(rule: ConvertedRule, edit: RuleEdit | undefined, batchDate: string): TraqRuleFields {
+  const f = effectiveFields(rule, edit, batchDate);
+  const reasons = incompleteReasons(rule, edit);
+  if (reasons.length === 0) return f;
+  const base = { ...f, entity: f.entity || rule.crismacTable, column: f.column || rule.crismacColumn };
+  if (!f.expression.trim()) return { ...base, expression: `/* NOT MIGRATED - CrisMac logic as written. ${reasons.slice(0, 3).join('; ')} */ ${rule.crismacLogic}` };
+  // Keep everything that did translate; only the unmapped columns, unset parameters and unsupported SQL revert to the CrisMac text.
+  const kept: string[] = [];
+  const expression = f.expression.replace(/\[\[(UNMAPPED|PARAM|UNSUPPORTED) ([^\]]*)\]\]/g, (_m, _k: string, text: string) => { if (!kept.includes(text)) kept.push(text); return text; });
+  if (kept.length === 0) return { ...base, expression };
+  return { ...base, expression: `/* CrisMac kept as written for: ${kept.join(', ')} (no TRAQ mapping yet) */ ${expression}` };
+}
 
 export function rulesInScope(rules: ConvertedRule[], edits: Record<string, RuleEdit>, scope: ExportScope): ConvertedRule[] {
   return rules.filter((r) => {
     const d = edits[r.id]?.decision;
     if (d === 'rejected') return false;
+    if (scope === 'demo') return true;
     if (scope === 'validated') return exportBlockers(r, edits[r.id]).length === 0;
     return scope === 'approved' ? d === 'approved' : r.status !== 'failed' || d === 'approved';
   });
@@ -109,18 +136,20 @@ export function splitByReadiness(rules: ConvertedRule[], edits: Record<string, R
 
 /** Checks run before a TRAQ file may be generated. Any error blocks the download. */
 export function validateForExport(
-  t: RuleTemplate, rules: ConvertedRule[], edits: Record<string, RuleEdit>, batchDate: string,
+  t: RuleTemplate, rules: ConvertedRule[], edits: Record<string, RuleEdit>, batchDate: string, demo = false,
 ): ExportCheck[] {
   const out: ExportCheck[] = [];
   const seen = new Map<string, string>();
   for (const r of rules) {
-    const f = effectiveFields(r, edits[r.id], batchDate);
+    const f = demo ? demoFields(r, edits[r.id], batchDate) : effectiveFields(r, edits[r.id], batchDate);
+    const incomplete = demo && incompleteReasons(r, edits[r.id]).length > 0;
     const row = templateRow(t, f);
     t.columns.forEach((c, i) => {
       const v = row[i].trim();
       if (c.mandatory && !v) out.push({ ruleId: r.id, field: c.header, severity: 'error', message: `${c.header} is empty.` });
       else if (v && c.allowed && !c.allowed.includes(v)) out.push({ ruleId: r.id, field: c.header, severity: 'error', message: `${c.header} "${v}" is not one of ${c.allowed.join(', ')}.` });
     });
+    if (incomplete) continue; // demo rows with CrisMac logic as written: only the mandatory/allowed checks above apply
     if (/\[\[(UNMAPPED|PARAM|UNSUPPORTED)/.test(f.expression)) {
       out.push({ ruleId: r.id, field: 'expression', severity: 'error', message: 'The expression still contains [[...]] placeholders (unmapped columns, parameters or unsupported SQL).' });
     }
@@ -142,13 +171,13 @@ export function validateForExport(
 }
 
 /** The TRAQ rule file (exact template headers), for CSV/Excel generation through domain/exporters. */
-export function traqRuleDoc(t: RuleTemplate, rules: ConvertedRule[], edits: Record<string, RuleEdit>, batchDate: string, generatedAt: string): ExportDoc {
+export function traqRuleDoc(t: RuleTemplate, rules: ConvertedRule[], edits: Record<string, RuleEdit>, batchDate: string, generatedAt: string, demo = false): ExportDoc {
   return {
     title: 'TRAQ business rules converted from CrisMac',
-    subtitle: `${t.name} - ${rules.length} rule(s)`,
+    subtitle: `${t.name} - ${rules.length} rule(s)${demo ? ' - DEMO: rules not yet mapped show the CrisMac logic as written' : ''}`,
     generatedAt,
     source: 'Rule-based conversion of CrisMac SQL using Agent 4 mappings (no AI)',
-    sheets: [{ name: t.id === 'dd-export' ? 'dd_export' : 'FPM_DA_RULES', columns: t.columns.map((c) => c.header), rows: rules.map((r) => templateRow(t, effectiveFields(r, edits[r.id], batchDate))) }],
+    sheets: [{ name: t.id === 'dd-export' ? 'dd_export' : 'FPM_DA_RULES', columns: t.columns.map((c) => c.header), rows: rules.map((r) => templateRow(t, demo ? demoFields(r, edits[r.id], batchDate) : effectiveFields(r, edits[r.id], batchDate))) }],
   };
 }
 

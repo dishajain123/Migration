@@ -2,6 +2,7 @@ import { flowExplainPrompt, parseInsight, procedureExplainPrompt, tableBriefProm
 import { buildEmbeddingIndex as buildIndex, embeddingObjects } from '@/domain/embeddingObjects';
 import { formatProposalInsight } from '@/domain/mappingProposals';
 import { buildGapMappingInput, parseGapMappingOutput } from '@/domain/ruleConversion/aiGapMapping';
+import { buildAiRuleInput, parseAiRuleOutput } from '@/domain/ruleConversion/aiRuleConvert';
 import type { ApiResult, FlowRequest, ReviewedMapping } from '@/types';
 import type { AiInsight, CompletionResult, ModelChoice } from '@/types/ai';
 import type { MappingProposalSet } from '@/types/mappingAi';
@@ -86,6 +87,16 @@ export function createAgentAi(deps: Deps, gateway: AiGatewayClient, decisions?: 
       const set = parseGapMappingOutput(input, r.data.text);
       if (!set) return { data: null, meta: r.meta, error: { code: 'BAD_OUTPUT', message: 'The model did not return the expected JSON. Try again, or choose a model that follows JSON instructions in AI Settings.' } };
       return { data: set, meta: { ...r.meta, provider: r.data.provider, model: r.data.model, note: 'AI proposals checked against the in-scope TRAQ columns and type rules. Each is a draft until you accept it.' } };
+    },
+    async convertRulesWithAi(req, choice) {
+      const m = await need(deps.dataModel.exportMetadata()); if (!m.ok) return m.error;
+      const input = buildAiRuleInput(m.value, req.rules);
+      if (!input) return fail('NO_CONTEXT', 'Every rule is already converted, so there is nothing for the AI to complete.');
+      const r = await gateway.complete({ messages: input.prompt.messages, json: true, maxTokens: input.prompt.maxTokens, temperature: 0.1, agent: 'agent5-rule-convert', provider: choice?.provider, model: choice?.model });
+      if (r.data === null) return { data: null, meta: r.meta, error: r.error ?? { code: 'PROVIDER_ERROR', message: 'The AI request failed.' } };
+      const set = parseAiRuleOutput(input, r.data.text);
+      if (!set) return { data: null, meta: r.meta, error: { code: 'BAD_OUTPUT', message: 'The model did not return the expected JSON. Try again, or choose a model that follows JSON instructions in AI Settings.' } };
+      return { data: set, meta: { ...r.meta, provider: r.data.provider, model: r.data.model, note: 'AI expressions checked against the TRAQ function list and in-scope TRAQ columns. Rules still need confirmed mappings and approval.' } };
     },
     async rankMappings(table, choice, enrich) {
       const r = await propose(table, choice, enrich);

@@ -4,7 +4,7 @@ import { ExportMenu } from '@/components/ExportMenu';
 import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Button, Card, CardHeader, Input, Select, Stat } from '@/components/ui';
 import {
-  conversionReportDoc, effectiveFields, rulesInScope, splitByReadiness, templateRow, traqRuleDoc, validateForExport, type ExportScope,
+  conversionReportDoc, demoFields, effectiveFields, incompleteReasons, rulesInScope, splitByReadiness, templateRow, traqRuleDoc, validateForExport, type ExportScope,
 } from '@/domain/ruleConversion/templates';
 import { decisionCounts } from '@/domain/ruleConversion/views';
 import { useAsync } from '@/hooks/useAsync';
@@ -12,6 +12,7 @@ import { cn } from '@/lib/cn';
 import { downloadDoc } from '@/lib/download';
 import { services } from '@/services';
 import { useConversionStore } from '@/stores/conversionStore';
+import { AiRuleConvert } from './AiRuleConvert';
 import type { ConvertedRule, RuleTemplate } from '@/types';
 
 const PREVIEW_ROWS = 20;
@@ -31,12 +32,14 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
   const edits = useConversionStore((s) => s.edits);
   const settings = useConversionStore((s) => s.settings);
   const setSettings = useConversionStore((s) => s.setSettings);
-  const [scope, setScope] = useState<ExportScope>('validated');
+  const [scope, setScope] = useState<ExportScope>('demo');
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const template = templates.find((t) => t.id === templateId) ?? templates[0];
   const batch = settings.effectiveStartDate;
   const inScope = useMemo(() => rulesInScope(rules, edits, scope), [rules, edits, scope]);
-  const checks = useMemo(() => validateForExport(template, inScope, edits, batch), [template, inScope, edits, batch]);
+  const demo = scope === 'demo';
+  const demoOpen = useMemo(() => (demo ? inScope.filter((r) => incompleteReasons(r, edits[r.id]).length > 0).length : 0), [demo, inScope, edits]);
+  const checks = useMemo(() => validateForExport(template, inScope, edits, batch, demo), [template, inScope, edits, batch, demo]);
   const errors = checks.filter((c) => c.severity === 'error');
   const warnings = checks.filter((c) => c.severity === 'warning');
   const counts = decisionCounts(rules, edits);
@@ -47,7 +50,7 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
 
   const download = (format: 'csv' | 'xlsx') => {
     try {
-      const out = downloadDoc(format, traqRuleDoc(template, inScope, edits, batch, now()), template.id === 'dd-export' ? 'traq_dd_export' : 'traq_fpm_da_rules');
+      const out = downloadDoc(format, traqRuleDoc(template, inScope, edits, batch, now(), demo), template.id === 'dd-export' ? 'traq_dd_export' : 'traq_fpm_da_rules');
       setStatus({ ok: true, text: `Downloaded ${out.filename} with ${out.rows} rule(s).` });
     } catch (e) {
       setStatus({ ok: false, text: `Export failed: ${e instanceof Error ? e.message : String(e)}` });
@@ -56,6 +59,7 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
 
   return (
     <div className="space-y-4">
+      <AiRuleConvert rules={rules} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
         <Stat label="Rules" value={rules.length} />
         <Stat label="Converted" value={rules.filter((r) => r.status === 'converted').length} hint="no open issues" />
@@ -97,6 +101,7 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
                 <option value="validated">Validated TRAQ rules only ({split.ready.length})</option>
                 <option value="approved">Approved, even with unconfirmed mappings ({counts.approved})</option>
                 <option value="approved-and-pending">Approved and pending (not rejected or failed)</option>
+                <option value="demo">Demo: all rules, unmapped ones show CrisMac logic ({rules.length})</option>
               </Select>
             </label>
             <label className="text-xs">
@@ -115,6 +120,12 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
             </div>
           )}
 
+          {demo && (
+            <div role="note" className="flex items-start gap-2 rounded-md border border-warn bg-warnbg px-3 py-2 text-xs">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warn" />
+              <span><b>Demo file.</b> {demoOpen} of {inScope.length} rule(s) are not fully mapped, so their expression keeps the TRAQ translation and shows each unmapped column, parameter or unsupported part as the CrisMac text, with a comment listing them. Nothing is guessed for those parts, and the rows are not valid TRAQ syntax. Use "Validated TRAQ rules only" for a file to load into TRAQ.</span>
+            </div>
+          )}
           <Validation inScope={inScope.length} errors={errors} warnings={warnings} onOpenRule={onOpenRule} />
           <p className="text-xs text-muted">The Export menu above (top right) downloads the complete report instead: every rule with its Ready / Pending status, the reasons, the original CrisMac logic beside the TRAQ expression, and every column mapping.</p>
           <NotReady items={notReady} onOpenRule={onOpenRule} />
@@ -132,7 +143,7 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
               <tbody>
                 {inScope.slice(0, PREVIEW_ROWS).map((r) => (
                   <tr key={r.id} className="border-t border-border align-top">
-                    {templateRow(template, effectiveFields(r, edits[r.id], batch)).map((v, i) => {
+                    {templateRow(template, demo ? demoFields(r, edits[r.id], batch) : effectiveFields(r, edits[r.id], batch)).map((v, i) => {
                       const wide = ['expression', 'explanation', 'crismac', 'reads'].includes(template.columns[i].field);
                       return (
                         <td key={template.columns[i].header} className={cn('px-3 py-1.5', wide ? 'max-w-[28rem]' : 'whitespace-nowrap', i === template.columns.findIndex((c) => c.field === 'expression') && 'font-mono text-[10.5px]', !v && template.columns[i].mandatory && 'bg-badbg')}>

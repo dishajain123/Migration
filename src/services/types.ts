@@ -4,6 +4,7 @@ import type {
   TableSummary, TableAnalysis, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel, ReviewedMapping, ConvertedRule,
 } from '@/types';
 import type { GapMappingSet } from '@/domain/ruleConversion/aiGapMapping';
+import type { AiRuleSet } from '@/domain/ruleConversion/aiRuleConvert';
 import type { ColumnGap } from '@/domain/ruleConversion/gaps';
 import type { AiInsight, ChatStreamEvent, ModelChoice, ProviderId } from '@/types/ai';
 import type { MappingDecisionRecord } from '@/types/decisions';
@@ -110,6 +111,8 @@ export interface AgentAiService {
    * in-scope TRAQ columns; picks outside them or with incompatible types are dropped. Drafts only: nothing is saved until accepted.
    */
   proposeGapMappings(req: { gaps: ColumnGap[]; rules: ConvertedRule[] }, o?: ModelChoice): Promise<ApiResult<GapMappingSet>>;
+  /** AI completion of the rules the deterministic converter could not finish; every expression is validated before it is returned. */
+  convertRulesWithAi(req: { rules: ConvertedRule[] }, o?: ModelChoice): Promise<ApiResult<AiRuleSet>>;
   /** Embeds this table's unfed columns and candidate source columns through the gateway (needs an OpenAI or Gemini key). */
   buildEmbeddingIndex(table: string, profile?: ProfileMetadata): Promise<ApiResult<EmbeddingIndex>>;
   reviewValidation(reviewed: ReviewedMapping[], o?: ModelChoice): Promise<ApiResult<AiInsight>>;

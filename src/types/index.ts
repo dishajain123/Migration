@@ -767,6 +767,8 @@ export interface RuleEdit {
   traq?: Partial<TraqRuleFields>;
   decision?: RuleDecision;
   comment?: string;
+  /** Set when the expression was written by the AI conversion step (it is a draft; the rule still needs approval). */
+  aiConverted?: { provider: string; model: string; confidence: number };
   editedAt: string;
 }
 export interface ExportCheck { ruleId: string; field: string; severity: 'error' | 'warning'; message: string }
