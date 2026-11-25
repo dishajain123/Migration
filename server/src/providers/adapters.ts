@@ -22,6 +22,11 @@ interface OpenAiChunk { choices?: { delta?: { content?: string | null } }[]; err
 function openAiCompatible(opts: {
   info: ProviderInfo; chatBase: (base: string) => string; maxTokensField: string;
   listModels: (base: string, key: string | null) => { url: string; pick: (b: unknown) => string[] };
+  /**
+   * Answer `complete()` by reading the stream. For slow local models: a plain request returns no bytes until the whole answer is
+   * done (Node's fetch gives up after 5 minutes without response headers), while a stream stays alive and only the idle timeout applies.
+   */
+  completeViaStream?: boolean;
 }): ProviderAdapter {
   const { info } = opts;
   const payload = (messages: ChatMessage[], cfg: ProviderConfig, stream: boolean) => {
@@ -33,7 +38,7 @@ function openAiCompatible(opts: {
     return JSON.stringify(p);
   };
   const url = (cfg: ProviderConfig) => `${opts.chatBase(trim(cfg.baseUrl))}/chat/completions`;
-  return {
+  const self: ProviderAdapter = {
     info,
     async listModels(cfg) {
       need(cfg, info);
@@ -43,6 +48,11 @@ function openAiCompatible(opts: {
     },
     async complete(messages, cfg) {
       need(cfg, info);
+      if (opts.completeViaStream) {
+        let text = '';
+        for await (const piece of self.stream(messages, cfg)) text += piece;
+        return text;
+      }
       const body = (await requestJson(cfg.fetchImpl, url(cfg),
         { method: 'POST', headers: authHeaders(cfg.apiKey), body: payload(messages, cfg, false) }, cfg.timeoutMs, cfg.apiKey, cfg.signal)) as OpenAiShape;
       const text = body?.choices?.[0]?.message?.content;
@@ -66,6 +76,7 @@ function openAiCompatible(opts: {
       if (!any) throw new GatewayError('PROVIDER_ERROR', 'The model returned no text. If this is a reasoning model, raise Max tokens in AI Settings.', 502);
     },
   };
+  return self;
 }
 
 const idsFromData = (b: unknown): string[] => ((b as { data?: { id?: string }[] })?.data ?? []).map((m) => m.id ?? '').filter(Boolean);
@@ -92,7 +103,7 @@ export const openrouter = openAiCompatible({
 });
 export const ollama = openAiCompatible({
   info: info({ id: 'ollama', label: 'Ollama (local)', requiresKey: false, usesBaseUrl: true, defaultBaseUrl: 'http://localhost:11434', keyHelpUrl: 'https://ollama.com/download', jsonMode: true }),
-  chatBase: (b) => `${b}/v1`, maxTokensField: 'max_tokens',
+  chatBase: (b) => `${b}/v1`, maxTokensField: 'max_tokens', completeViaStream: true,
   listModels: (b) => ({ url: `${b}/api/tags`, pick: (x) => ((x as { models?: { name?: string }[] })?.models ?? []).map((m) => m.name ?? '').filter(Boolean) }),
 });
 

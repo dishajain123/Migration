@@ -2,14 +2,16 @@ import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Button, Card, CardHeader } from '@/components/ui';
-import { isOpenRule, MAX_AI_RULES, type AiRuleSet } from '@/domain/ruleConversion/aiRuleConvert';
+import { DEFAULT_AI_BUDGET, isOpenRule, MIN_AI_BUDGET, type AiRuleSet } from '@/domain/ruleConversion/aiRuleConvert';
 import { services } from '@/services';
 import { useConversionStore } from '@/stores/conversionStore';
 import { withRateLimitRecovery } from '@/stores/rateLimitStore';
 import type { ConvertedRule } from '@/types';
 
 const CONFIG_CODES = new Set(['NOT_CONFIGURED', 'MISSING_KEY', 'INVALID_KEY', 'PERMISSION_DENIED', 'QUOTA_EXHAUSTED', 'INCOMPATIBLE']);
-const MAX_BATCHES = 10;
+const MAX_CALLS = 40;
+/** Provider messages meaning the prompt did not fit the model's context window (Ollama, OpenAI, Groq, LM Studio wording). */
+const CONTEXT_ERROR = /context length|context window|context_length|prompt is (?:too )?long|too many tokens|maximum context|exceeds? the (?:max|context)/i;
 
 type State =
   | { status: 'idle' } | { status: 'loading'; done: number; total: number }
@@ -28,18 +30,28 @@ export function AiRuleConvert({ rules }: { rules: ConvertedRule[] }) {
   const open = rules.filter((r) => isOpenRule(r) && !edits[r.id]?.aiConverted && edits[r.id]?.decision !== 'rejected');
 
   const go = async () => {
-    const queue = [...open];
-    const total = Math.min(queue.length, MAX_BATCHES * MAX_AI_RULES);
+    let queue = [...open];
+    const total = queue.length;
     let applied = 0; let by = '';
+    // Start with the normal prompt size; if the model's context window is too small, halve it and retry the same rules.
+    let budget = DEFAULT_AI_BUDGET;
     const rejected: AiRuleSet['rejected'] = []; const unresolved: AiRuleSet['unresolved'] = [];
-    for (let i = 0; i < MAX_BATCHES && queue.length > 0; i++) {
-      setState({ status: 'loading', done: Math.min(i * MAX_AI_RULES, total), total });
-      const batch = queue.splice(0, MAX_AI_RULES);
-      const r = await withRateLimitRecovery((o) => services.ai.convertRulesWithAi({ rules: batch }, o));
-      if (!r.data) { setState({ status: 'error', code: r.error?.code ?? 'ERROR', message: r.error?.message ?? 'The AI request failed.' }); return; }
+    for (let calls = 0; calls < MAX_CALLS && queue.length > 0;) {
+      setState({ status: 'loading', done: total - queue.length, total });
+      const r = await withRateLimitRecovery((o) => services.ai.convertRulesWithAi({ rules: queue, budget }, o));
+      if (!r.data) {
+        const message = r.error?.message ?? 'The AI request failed.';
+        if (CONTEXT_ERROR.test(message) && budget > MIN_AI_BUDGET) { budget = Math.max(MIN_AI_BUDGET, Math.floor(budget / 2)); continue; }
+        const hint = CONTEXT_ERROR.test(message) ? ' Even a single rule is too long for this model\'s context window. Raise the context length for the model (Ollama: set num_ctx, e.g. 8192, or use a model with a longer context) and try again.' : '';
+        setState({ status: 'error', code: r.error?.code ?? 'ERROR', message: `${message}${hint}` });
+        return;
+      }
+      calls++;
       by = `${r.meta.provider ?? 'AI'} · ${r.meta.model ?? ''}`;
       apply(r.data.proposals, { provider: r.meta.provider ?? '', model: r.meta.model ?? '' });
       applied += r.data.proposals.length; rejected.push(...r.data.rejected); unresolved.push(...r.data.unresolved);
+      const done = new Set(r.data.askedIds);
+      queue = queue.filter((x) => !done.has(x.id));
     }
     setState({ status: 'done', applied, rejected, unresolved, by });
   };

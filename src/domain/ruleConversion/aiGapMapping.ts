@@ -59,26 +59,46 @@ function crismacType(model: WorkbookModel, table: string, column: string): strin
 }
 
 /** TRAQ columns a gap may map to: tables the rules already resolve to first (their own entity), then every other load-path table. */
-export function gapCandidatePool(model: WorkbookModel, rules: ConvertedRule[]): { pool: GapMappingInput['pool']; shown: number; total: number; listing: string } {
+export function gapCandidatePool(
+  model: WorkbookModel, rules: ConvertedRule[], opts?: { onlyUsed?: boolean; maxChars?: number },
+): { pool: GapMappingInput['pool']; shown: number; total: number; listing: string } {
   const touched = new Set<string>();
   for (const r of rules) {
     if (r.target.chosen) touched.add(up(r.target.chosen.table));
     for (const x of r.references) if (x.chosen) touched.add(up(x.chosen.table));
   }
-  const tables = model.tables.filter(isLoadPathTable).sort((a, b) => Number(touched.has(up(b.name))) - Number(touched.has(up(a.name))) || a.name.localeCompare(b.name));
+  const all = model.tables.filter(isLoadPathTable);
+  // Compact mode (short-context models): only the tables the rules resolve to or name, one line per table, within a character budget.
+  const logic = opts?.onlyUsed ? rules.map((r) => `${r.crismacLogic} ${r.traq.expression}`).join('\n').toUpperCase() : '';
+  const named = (t: { name: string }) => touched.has(up(t.name)) || (opts?.onlyUsed && t.name.length > 3 && logic.includes(up(t.name)));
+  const used = opts?.onlyUsed ? all.filter(named) : all;
+  const tables = (used.length > 0 ? used : all).sort((a, b) => Number(touched.has(up(b.name))) - Number(touched.has(up(a.name))) || a.name.localeCompare(b.name));
   const pool: GapMappingInput['pool'] = new Map();
   const blocks: string[] = [];
   let total = 0;
   for (const t of tables) total += coverageColumns(t).length;
   let shown = 0;
+  let chars = 0;
+  const maxChars = opts?.maxChars ?? Infinity;
   for (const t of tables) {
     const room = MAX_GAP_CANDIDATES - shown;
     if (room <= 0) break;
-    const cols = coverageColumns(t).slice(0, room);
+    let cols = coverageColumns(t).slice(0, room);
     if (cols.length === 0) continue;
+    const line = (cs: typeof cols) => (opts?.onlyUsed
+      ? `${t.name}: ${cs.map((c) => `${c.name} ${c.dataType || '?'}`).join(', ')}`
+      : `${t.name}${touched.has(up(t.name)) ? ' (used by these rules)' : ''}\n${cs.map((c) => `  - ${c.name} ${c.dataType || '(type not provided)'}`).join('\n')}`);
+    let text = line(cols);
+    if (chars + text.length > maxChars) {
+      const per = Math.max(1, Math.floor(text.length / cols.length));
+      cols = cols.slice(0, Math.max(0, Math.floor((maxChars - chars) / per)));
+      if (cols.length === 0) break;
+      text = line(cols);
+    }
+    chars += text.length + 1;
     shown += cols.length;
     for (const c of cols) pool.set(`${up(t.name)}.${up(c.name)}`, { table: t.name, column: c.name, type: c.dataType });
-    blocks.push(`${t.name}${touched.has(up(t.name)) ? ' (used by these rules)' : ''}\n${cols.map((c) => `  - ${c.name} ${c.dataType || '(type not provided)'}`).join('\n')}`);
+    blocks.push(text);
   }
   return { pool, shown, total, listing: blocks.join('\n') };
 }

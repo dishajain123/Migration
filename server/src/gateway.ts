@@ -7,19 +7,21 @@ import { PROVIDERS, PROVIDER_ORDER } from './providers/registry';
 import { GatewayError, type FetchLike, type ProviderAdapter, type ProviderConfig } from './providers/types';
 import type { SettingsStore, StoredProvider } from './store';
 
-export interface GatewayOptions { timeoutMs?: number; fetchImpl?: FetchLike; log?: (line: string) => void; env?: Env }
+export interface GatewayOptions { timeoutMs?: number; /** Idle limit for local (Ollama) models, default 30 minutes. */ localTimeoutMs?: number; fetchImpl?: FetchLike; log?: (line: string) => void; env?: Env }
 
 interface Resolved { adapter: ProviderAdapter; provider: ProviderId; model: string; cfg: ProviderConfig }
 
 /** The single place every agent and the chatbot go through to reach an LLM. Provider and model come from the caller's saved settings. */
 export class AiGateway {
   private readonly timeoutMs: number;
+  private readonly localTimeoutMs: number;
   private readonly fetchImpl: FetchLike;
   private readonly log: (line: string) => void;
   private readonly env: Env;
 
   constructor(private readonly store: SettingsStore, opts: GatewayOptions = {}) {
     this.timeoutMs = opts.timeoutMs ?? 60_000;
+    this.localTimeoutMs = opts.localTimeoutMs ?? 30 * 60_000;
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.log = opts.log ?? (() => undefined);
     this.env = opts.env ?? process.env;
@@ -172,6 +174,8 @@ export class AiGateway {
     if (req.tools && !caps.toolCalling) throw new GatewayError('INCOMPATIBLE', `Tool calling is not supported by the gateway for ${adapter.info.label}. Choose another provider or model.`, 422);
     const cfg: ProviderConfig = {
       ...this.baseCfg(uid, provider),
+      // Local models can take minutes to read a long prompt (and for the first load); only cloud providers get the short limit.
+      ...(provider === 'ollama' ? { timeoutMs: this.localTimeoutMs } : {}),
       model,
       temperature: req.temperature ?? stored.temperature ?? undefined,
       maxTokens: req.maxTokens ?? stored.maxTokens ?? undefined,

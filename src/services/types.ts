@@ -112,7 +112,7 @@ export interface AgentAiService {
    */
   proposeGapMappings(req: { gaps: ColumnGap[]; rules: ConvertedRule[] }, o?: ModelChoice): Promise<ApiResult<GapMappingSet>>;
   /** AI completion of the rules the deterministic converter could not finish; every expression is validated before it is returned. */
-  convertRulesWithAi(req: { rules: ConvertedRule[] }, o?: ModelChoice): Promise<ApiResult<AiRuleSet>>;
+  convertRulesWithAi(req: { rules: ConvertedRule[]; /** Max prompt context in characters; the call covers as many rules as fit. */ budget?: number }, o?: ModelChoice): Promise<ApiResult<AiRuleSet>>;
   /** Embeds this table's unfed columns and candidate source columns through the gateway (needs an OpenAI or Gemini key). */
   buildEmbeddingIndex(table: string, profile?: ProfileMetadata): Promise<ApiResult<EmbeddingIndex>>;
   reviewValidation(reviewed: ReviewedMapping[], o?: ModelChoice): Promise<ApiResult<AiInsight>>;

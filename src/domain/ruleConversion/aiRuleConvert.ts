@@ -27,6 +27,8 @@ export interface AiRuleSet {
   rejected: { ruleId: string; reason: string }[];
   unresolved: { ruleId: string; reason: string }[];
   asked: number;
+  /** Ids of the rules this call actually covered (a call takes as many as fit the prompt budget). */
+  askedIds: string[];
 }
 export interface AiRuleInput { prompt: PromptSpec; rules: ConvertedRule[]; pool: Map<string, { table: string; column: string; type: string }> }
 
@@ -41,32 +43,55 @@ const SCHEMA = [
   'with no TRAQ form, do NOT guess: put the rule in "unresolved" and say what is missing. A rule left unresolved is better than a wrong expression.',
 ].join(' ');
 
-export function buildAiRuleInput(model: WorkbookModel, rules: ConvertedRule[]): AiRuleInput | null {
-  const picked = rules.filter(isOpenRule).slice(0, MAX_AI_RULES);
-  if (picked.length === 0) return null;
-  const { pool, shown, total, listing } = gapCandidatePool(model, picked);
+/** Default size (characters) of the CONTEXT block. ~4 chars per token, so this is ~2.5k tokens: fits a 4096-token local model with room for the answer. */
+export const DEFAULT_AI_BUDGET = 10000;
+export const MIN_AI_BUDGET = 2500;
+const FIXED_CHARS = 900; // allowed-function line, headings and the system prompt's schema
+
+function ruleBlock(r: ConvertedRule, logicMax: number, exprMax: number): string {
+  const mapped = [r.target, ...r.references].filter((x) => x.chosen).map((x) => `${x.crismacTable}.${x.crismacColumn} -> "${x.chosen?.table}"."${x.chosen?.column}"`);
+  const missing = [r.target, ...r.references].filter((x) => !x.chosen).map((x) => `${x.crismacTable}.${x.crismacColumn}`);
+  return [
+    `- rule=${r.id}`,
+    `  writes: ${r.target.chosen ? `"${r.target.chosen.table}"."${r.target.chosen.column}"` : `${r.crismacTable}.${r.crismacColumn} (no TRAQ column)`}`,
+    `  CrisMac logic:\n${clip(r.crismacLogic, logicMax).split('\n').map((l) => `    ${l}`).join('\n')}`,
+    `  TRAQ expression so far: ${clip(r.traq.expression, exprMax) || '(none)'}`,
+    `  mapped columns: ${clip(mapped.join('; '), 600) || 'none'}`,
+    `  columns with no TRAQ column: ${clip(missing.join('; '), 400) || 'none'}`,
+  ].join('\n');
+}
+
+/**
+ * Builds the prompt for as many open rules as fit in `budget` characters (always at least one). The TRAQ column list is limited
+ * to the tables these rules already resolve to (plus any table named in their logic) and written compactly, so the prompt stays
+ * small enough for models with a short context window (e.g. a local Ollama model at its default 4096 tokens). `rules` in the
+ * result are exactly the rules the model was asked about; the caller sends the rest in the next call.
+ */
+export function buildAiRuleInput(model: WorkbookModel, rules: ConvertedRule[], budget = DEFAULT_AI_BUDGET): AiRuleInput | null {
+  const open = rules.filter(isOpenRule);
+  if (open.length === 0) return null;
+  const b = Math.max(MIN_AI_BUDGET, budget);
+  const small = b < DEFAULT_AI_BUDGET;
+  const logicMax = small ? 700 : 1800;
+  const exprMax = small ? 500 : 1200;
+  const ruleBudget = Math.floor((b - FIXED_CHARS) * 0.6);
+  const picked: ConvertedRule[] = [];
+  const blocks: string[] = [];
+  let used = 0;
+  for (const r of open.slice(0, MAX_AI_RULES)) {
+    const blk = ruleBlock(r, logicMax, exprMax);
+    if (picked.length > 0 && used + blk.length > ruleBudget) break;
+    picked.push(r); blocks.push(blk); used += blk.length + 1;
+  }
+  const { pool, total, listing } = gapCandidatePool(model, picked, { onlyUsed: true, maxChars: b - FIXED_CHARS - used });
   if (pool.size === 0) return null;
-  const block = picked.map((r) => {
-    const mapped = [r.target, ...r.references].filter((x) => x.chosen).map((x) => `${x.crismacTable}.${x.crismacColumn} -> "${x.chosen?.table}"."${x.chosen?.column}"`);
-    const missing = [r.target, ...r.references].filter((x) => !x.chosen).map((x) => `${x.crismacTable}.${x.crismacColumn}`);
-    return [
-      `- rule=${r.id}`,
-      `  writes: ${r.target.chosen ? `"${r.target.chosen.table}"."${r.target.chosen.column}"` : `${r.crismacTable}.${r.crismacColumn} (no TRAQ column)`}`,
-      `  CrisMac logic:\n${clip(r.crismacLogic, 1800).split('\n').map((l) => `    ${l}`).join('\n')}`,
-      `  TRAQ expression so far: ${clip(r.traq.expression, 1200) || '(none)'}`,
-      `  mapped columns: ${mapped.join('; ') || 'none'}`,
-      `  columns with no TRAQ column: ${missing.join('; ') || 'none'}`,
-    ].join('\n');
-  }).join('\n');
   const context = [
-    `RULES TO COMPLETE (${picked.length}${rules.filter(isOpenRule).length > picked.length ? ` of ${rules.filter(isOpenRule).length}` : ''}):\n${block}`,
+    `RULES TO COMPLETE (${picked.length}${open.length > picked.length ? ` of ${open.length}` : ''}):\n${blocks.join('\n')}`,
     `ALLOWED FUNCTIONS: ${[...ALLOWED_WORDS].filter((w) => !['IF', 'THEN', 'ELSE'].includes(w)).join(', ')}.`,
-    `TRAQ COLUMNS (the only columns you may use)${total > shown ? ` - showing ${shown} of ${total}` : ''}:\n${listing}`,
+    `TRAQ COLUMNS (the only columns you may use)${total > pool.size ? ` - showing ${pool.size} of ${total}` : ''}:\n${listing}`,
   ].join('\n\n');
-  return {
-    rules: picked, pool,
-    prompt: spec('Complete each CrisMac rule as a TRAQ expression using only the documented functions and the listed TRAQ columns, or report it as unresolved. Every expression is validated and stays a draft until a person approves the rule.', SCHEMA, context),
-  };
+  const p = spec('Complete each CrisMac rule as a TRAQ expression using only the documented functions and the listed TRAQ columns, or report it as unresolved. Every expression is validated and stays a draft until a person approves the rule.', SCHEMA, context, small ? 1536 : 3072);
+  return { rules: picked, pool, prompt: p };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -98,7 +123,7 @@ export function parseAiRuleOutput(input: AiRuleInput, text: string): AiRuleSet |
   const o = extractJson(text);
   if (!isObj(o) || !Array.isArray(o.rules)) return null;
   const byId = new Map(input.rules.map((r) => [r.id, r]));
-  const set: AiRuleSet = { proposals: [], rejected: [], unresolved: [], asked: input.rules.length };
+  const set: AiRuleSet = { proposals: [], rejected: [], unresolved: [], asked: input.rules.length, askedIds: input.rules.map((r) => r.id) };
   const answered = new Set<string>();
   for (const p of o.rules.filter(isObj)) {
     const id = typeof p.id === 'string' ? p.id.trim() : '';

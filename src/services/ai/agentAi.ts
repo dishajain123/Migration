@@ -90,7 +90,7 @@ export function createAgentAi(deps: Deps, gateway: AiGatewayClient, decisions?: 
     },
     async convertRulesWithAi(req, choice) {
       const m = await need(deps.dataModel.exportMetadata()); if (!m.ok) return m.error;
-      const input = buildAiRuleInput(m.value, req.rules);
+      const input = buildAiRuleInput(m.value, req.rules, req.budget);
       if (!input) return fail('NO_CONTEXT', 'Every rule is already converted, so there is nothing for the AI to complete.');
       const r = await gateway.complete({ messages: input.prompt.messages, json: true, maxTokens: input.prompt.maxTokens, temperature: 0.1, agent: 'agent5-rule-convert', provider: choice?.provider, model: choice?.model });
       if (r.data === null) return { data: null, meta: r.meta, error: r.error ?? { code: 'PROVIDER_ERROR', message: 'The AI request failed.' } };

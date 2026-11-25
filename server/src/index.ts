@@ -15,7 +15,8 @@ const dataDir = process.env.GATEWAY_DATA_DIR ?? join(process.cwd(), 'server', '.
 const key = loadMasterKey(process.env.GATEWAY_MASTER_KEY, join(dataDir, 'master.key'));
 const log = (line: string) => console.log(`[gateway] ${line}`);
 const gateway = new AiGateway(new SettingsStore(join(dataDir, 'providers.json'), key), {
-  timeoutMs: Number(process.env.GATEWAY_TIMEOUT_MS ?? 60_000), log,
+  timeoutMs: Number(process.env.GATEWAY_TIMEOUT_MS ?? 60_000),
+  localTimeoutMs: Number(process.env.GATEWAY_LOCAL_TIMEOUT_MS ?? 30 * 60_000), log,
 });
 const kb = new KnowledgeBase(join(dataDir, 'knowledge.json'));
 const vectors = new VectorStore(dataDir);
