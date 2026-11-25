@@ -25,7 +25,7 @@ const ep = config.endpoints;
 const get = <T>(p: string, q?: Record<string, unknown>) => request<T>('GET', p, q);
 const post = <T>(p: string, b: unknown) => request<T>('POST', p, undefined, b);
 
-export function createHttpServices(): Omit<Services, 'ai' | 'assistant'> {
+export function createHttpServices(): Omit<Services, 'ai' | 'assistant' | 'decisions' | 'jobs'> {
   return {
     chat: {
       ask: (req) => post(ep.chatAsk, req),
@@ -59,9 +59,9 @@ export function createHttpServices(): Omit<Services, 'ai' | 'assistant'> {
     mapping: {
       listTargets: () => get(ep.mappingTargets),
       getDocumented: (table) => get(ep.mappingDocumented, { target: table }),
-      getSuggestions: (table) => post(ep.mappingSuggest, { targetTable: table }),
+      getSuggestions: (table, opts) => post(ep.mappingSuggest, { targetTable: table, enrichment: opts }),
       getUnfed: (table) => get(ep.mappingUnfed, { target: table }),
-      getAnalysis: (table, reviewed) => post(ep.mappingAnalysis, { targetTable: table, reviewed: reviewed ?? [] }),
+      getAnalysis: (table, reviewed, opts) => post(ep.mappingAnalysis, { targetTable: table, reviewed: reviewed ?? [], enrichment: opts }),
       getIssues: (table) => get(`${ep.mappingDocumented}/issues`, { target: table }),
       listAllTables: () => get(`${ep.tables}?withColumns=true`),
       submitReview: (id, decision, comment) => post(ep.mappingReview, { id, decision, comment }),

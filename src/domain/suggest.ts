@@ -1,11 +1,15 @@
 import type {
   MappingIssueSummary, ProcSource, Suggestion, TableAnalysis, TargetSummary, UnfedColumn, WorkbookModel,
 } from '@/types';
+import { calibrate } from './mappingCalibration';
 import { analyseTable, suggestionsFromAnalysis, tokens, unfedColumns } from './mappingEngine';
+import { calibrationFor } from './mappingEval';
+import { validateCandidateMapping } from './mappingValidator';
 import { memo } from './memo';
 import { isLoadPathTable, coverageColumns } from './selectors';
 import { dateKeyLookup, dateKeyTransformation, projectDateKey } from './mappingSemantics';
 import { compat, parseType } from './typeUtils';
+import type { EnrichmentOptions } from '@/types/profile';
 
 /*
  * HEURISTIC, NOT AI. Deterministic, context-aware candidate scoring used by Agent 4. The UI labels all output of this
@@ -22,15 +26,50 @@ const jaccard = (a: Set<string>, b: Set<string>): number => {
 };
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-export function tableAnalysis(model: WorkbookModel, tableName: string, procs?: ProcSource[]): TableAnalysis | undefined {
-  return analyseTable(model, tableName, procs);
+export function tableAnalysis(model: WorkbookModel, tableName: string, procs?: ProcSource[], opts?: EnrichmentOptions): TableAnalysis | undefined {
+  return analyseTable(model, tableName, procs, opts);
 }
 
-export function suggestionsForTable(model: WorkbookModel, tableName: string, procs?: ProcSource[]): Suggestion[] {
-  return memo(model, `sugg:${tableName}:${procs ? procs.length : 'x'}`, () => {
-    const a = analyseTable(model, tableName, procs);
-    return a ? suggestionsFromAnalysis(model, a) : [];
+/** `opts` (profile / embeddings) is optional; without it this is the pure workbook-only suggester. */
+export function suggestionsForTable(model: WorkbookModel, tableName: string, procs?: ProcSource[], opts?: EnrichmentOptions): Suggestion[] {
+  return memo(model, `sugg:${tableName}:${procs ? procs.length : 'x'}${opts?.profile ? `:${opts.profile.id}` : ''}${opts?.embeddings ? `:${opts.embeddings.id}` : ''}`, () => {
+    const a = analyseTable(model, tableName, procs, opts);
+    return a ? finaliseSuggestions(model, suggestionsFromAnalysis(model, a)) : [];
   });
+}
+
+/**
+ * Every engine suggestion passes the deterministic schema validator (anything invalid is dropped) and gets a confidence
+ * calibrated on held-out documented mappings instead of the raw weighted score. Still Simulated, still needs approval.
+ */
+export function finaliseSuggestions(model: WorkbookModel, list: Suggestion[]): Suggestion[] {
+  // The calibration was measured WITHOUT profile/embedding inputs, so it is only applied to workbook-only suggestions.
+  const cal = list.some((s) => (s.provenance ?? 'workbook') === 'workbook') ? calibrationFor(model) : undefined;
+  return list
+    .map((s) => ({
+      s,
+      v: validateCandidateMapping(model, {
+        targetTable: s.targetTable, targetColumn: s.targetColumn, sourceTable: s.sourceTable, sourceColumn: s.sourceColumn,
+        origin: 'heuristic', transformation: s.transformation, ambiguous: s.ambiguous,
+      }),
+    }))
+    .filter((x) => x.v.valid)
+    .map(({ s, v }): Suggestion => {
+      const raw = s.rawScore ?? s.confidence / 100;
+      if ((s.provenance ?? 'workbook') !== 'workbook' || !cal) {
+        return {
+          ...s, confidence: Math.max(1, Math.min(99, Math.round(raw * 100))), confidenceBasis: 'uncalibrated', calibrationSupport: 0,
+          validation: v.status === 'valid' ? 'valid' : 'valid_with_warnings',
+          reasons: [...s.reasons, `Confidence is the raw score (${(raw * 100).toFixed(0)}%): the calibration was measured on workbook-only evidence, not on profile or embedding inputs`],
+        };
+      }
+      const c = calibrate(cal, raw, s.ambiguous);
+      const reasons = c.basis === 'calibrated'
+        ? [...s.reasons, `Calibrated confidence ${c.confidence}%: measured on ${c.support} held-out documented mappings with a similar score (raw score ${(raw * 100).toFixed(0)}%)`]
+        : [...s.reasons, `Confidence is the raw heuristic score (${(raw * 100).toFixed(0)}%): too few documented mappings in the workbook to calibrate it`];
+      return { ...s, confidence: c.confidence, confidenceBasis: c.basis, calibrationSupport: c.support, validation: v.status === 'valid' ? 'valid' : 'valid_with_warnings', reasons };
+    })
+    .sort((a, b) => b.confidence - a.confidence);
 }
 
 /**

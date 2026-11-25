@@ -1,16 +1,21 @@
 import type {
-  ColumnResolution, DdMigratedRule, DdUnmappedRef, ReviewedMapping, WorkbookModel,
+  ColumnResolution, ConversionSettings, DdMigratedRule, DdUnmappedRef, ReviewedMapping, WorkbookModel,
 } from '@/types';
 import type { ExportDoc } from '../exporters';
+import { tableByName } from '../selectors';
+import { traqifyExpression } from './ddTraq';
 import { buildMappingIndex, resolveColumn, type MappingIndex } from './resolve';
 
 /*
- * Migrate the corrected rules the project already has (public/data/latest dd output/<proc>/dd_export.csv) to TRAQ names.
- * Nothing about the rule is rewritten: Derivation Option, Rule Explanation, dates, Status, Data Type and the expression's
- * structure, operators, literals and parameters stay exactly as written. Only the Entity Name, Column Name and the
- * quoted "Table"."Column" references are replaced, and only where Agent 4 / the workbook confirm the TRAQ column.
- * A rule with any reference that is not confirmed is NOT converted at all: it is listed separately with its original
- * text untouched, so the output never contains placeholder text such as "unmapped".
+ * Migrate the corrected rules the project already has (public/data/latest dd output/<proc>/dd_export.csv) to TRAQ.
+ * Derivation Option, Rule Explanation, dates, Status, Data Type and the expression's structure, operators and literals stay
+ * as written. What changes is exactly what differs between the two models:
+ *   - Entity Name, Column Name and each quoted "Table"."Column" -> the confirmed TRAQ column (Agent 4 / workbook only);
+ *   - the CrisMac run parameters, DATEDIFF argument order and TimeKey tests -> TRAQ 4X's run date BUSINESS_DATE,
+ *     DATEDIFF(later, earlier, "d") and PERIOD_ID / SCD2 dates (ddTraq.ts, every change listed in the rule's notes).
+ * `settings.namesOnly` switches the second kind off: only names change, for a side-by-side audit.
+ * A rule with any reference or parameter that is not confirmed is NOT converted at all: it is listed separately with its
+ * original text untouched, so the output never contains placeholder text such as "unmapped" or a leftover @TIMEKEY.
  */
 
 export const DD_HEADER = ['Entity Name', 'Column Name', 'Column Type', 'Derivation Option', 'Display Derivation Expression', 'Rule Explanation', 'Effective Start Date', 'Status', 'Data Type'];
@@ -40,17 +45,20 @@ function reasonFor(r: ColumnResolution): string {
   }
 }
 
-function unmappedOf(r: ColumnResolution, role: DdUnmappedRef['role']): DdUnmappedRef {
+/** `shown` is the CrisMac name as written in the rule (the resolution carries it upper-cased). */
+function unmappedOf(r: ColumnResolution, role: DdUnmappedRef['role'], shown: string): DdUnmappedRef {
   return {
-    role, crismac: `${r.crismacTable}.${r.crismacColumn}`, status: r.status, reason: reasonFor(r),
+    role, crismac: shown, status: r.status, reason: reasonFor(r),
     suggestion: r.status === 'suggested' && r.chosen ? `${r.chosen.table}.${r.chosen.column} (Simulated, not applied)` : '',
   };
 }
 
 export function migrateDdRows(
   model: WorkbookModel, procedure: string, header: string[], rows: string[][], reviewed: ReviewedMapping[], index?: MappingIndex,
+  settings?: ConversionSettings,
 ): DdMigratedRule[] {
   const idx = index ?? buildMappingIndex(model, reviewed);
+  const namesOnly = settings?.namesOnly === true;
   const at = (name: string) => header.findIndex((h) => h.trim().toLowerCase() === name.toLowerCase());
   const iEntity = at('Entity Name'); const iCol = at('Column Name'); const iExpr = at('Display Derivation Expression');
   if (iEntity < 0 || iCol < 0 || iExpr < 0) return [];
@@ -64,7 +72,7 @@ export function migrateDdRows(
     const target = resolveColumn(model, idx, entity, column);
     const unmapped: DdUnmappedRef[] = [];
     const notes: string[] = [];
-    if (!CONFIRMED.has(target.status) || !target.chosen) unmapped.push(unmappedOf(target, 'rule column'));
+    if (!CONFIRMED.has(target.status) || !target.chosen) unmapped.push(unmappedOf(target, 'rule column', `${entity}.${column}`));
     else if (target.status === 'name-match') notes.push(`${entity}.${column} -> ${target.chosen.table}.${target.chosen.column} is an exact same-name TRAQ column, not a documented mapping`);
 
     const resolved = new Map<string, ColumnResolution>();
@@ -74,20 +82,35 @@ export function migrateDdRows(
       if (resolved.has(k)) continue;
       const res = resolveColumn(model, idx, f.crismacTable, f.crismacColumn, target.chosen?.table);
       resolved.set(k, res);
-      if (!CONFIRMED.has(res.status) || !res.chosen) unmapped.push(unmappedOf(res, 'reads'));
+      if (!CONFIRMED.has(res.status) || !res.chosen) unmapped.push(unmappedOf(res, 'reads', `${f.crismacTable}.${f.crismacColumn}`));
       else {
         if (res.status === 'name-match') notes.push(`${k} -> ${res.chosen.table}.${res.chosen.column} is an exact same-name TRAQ column, not a documented mapping`);
         if (target.chosen && res.chosen.table !== target.chosen.table) notes.push(`${res.chosen.table}.${res.chosen.column} is on another table than ${target.chosen.table}; confirm the TRAQ link`);
       }
     }
-    if (/@[A-Za-z_]+/.test(expression)) notes.push('Run parameters (@TIMEKEY, @ProcessDate) are kept exactly as written');
+    // The CrisMac model's run parameters, DATEDIFF order and TimeKey tests are rewritten to TRAQ's (ddTraq.ts); what cannot be
+    // converted without guessing keeps the rule out of the ready file, with the reason.
+    // namesOnly = the audit mode: only names change, the CrisMac syntax is kept exactly as written and nothing waits for a parameter.
+    const keep = { text: expression, notes: [] as string[], unresolved: [] as { name: string; reason: string }[] };
+    const tq = !target.chosen ? keep
+      : namesOnly ? { ...keep, notes: /@[A-Za-z_]|\bDATEDIFF\s*\(/i.test(expression) ? ['Names only: the CrisMac syntax is kept as written (run parameters, DATEDIFF argument order and TimeKey tests are not translated to TRAQ 4X).'] : [] }
+        : traqifyExpression(expression, {
+          entity: target.chosen.table, resolved, settings,
+          entityColumns: new Set((tableByName(model).get(target.chosen.table)?.columns ?? []).map((c) => c.name.toUpperCase())),
+        });
+    for (const u of tq.unresolved) {
+      if (!unmapped.some((x) => x.role === 'parameter' && x.crismac === u.name && x.reason === u.reason)) {
+        unmapped.push({ role: 'parameter', crismac: u.name, status: 'missing', reason: u.reason, suggestion: '' });
+      }
+    }
+    notes.push(...tq.notes);
 
     const ready = unmapped.length === 0 && !!target.chosen;
     const traqRow = [...original];
     if (ready && target.chosen) {
       traqRow[iEntity] = target.chosen.table;
       traqRow[iCol] = target.chosen.column;
-      traqRow[iExpr] = expression.replace(REF_RE, (whole, a: string, b?: string, c?: string) => {
+      traqRow[iExpr] = tq.text.replace(REF_RE, (whole, a: string, b?: string, c?: string) => {
         if (!b || c) return whole;
         const res = resolved.get(`${a}.${b.slice(1, -1)}`.toUpperCase());
         return res?.chosen ? `"${res.chosen.table}"."${res.chosen.column}"` : whole;
@@ -99,6 +122,46 @@ export function migrateDdRows(
     });
   });
   return out;
+}
+
+export interface BlockingColumn {
+  crismac: string;
+  role: DdUnmappedRef['role'];
+  status: DdUnmappedRef['status'];
+  reason: string;
+  suggestion: string;
+  /** Rules this one column or parameter keeps out of the ready file. */
+  rules: number;
+  procedures: string[];
+}
+
+/** The unmapped CrisMac columns and parameters that block the most rules, so mapping effort goes where it unblocks most. */
+export function blockingColumns(rules: DdMigratedRule[]): BlockingColumn[] {
+  const by = new Map<string, BlockingColumn & { seen: Set<string> }>();
+  for (const r of rules) {
+    if (r.status !== 'needs-mapping') continue;
+    for (const u of r.unmapped) {
+      const k = `${u.role}|${u.crismac.toUpperCase()}`;
+      const e = by.get(k) ?? { crismac: u.crismac, role: u.role, status: u.status, reason: u.reason, suggestion: u.suggestion, rules: 0, procedures: [], seen: new Set<string>() };
+      if (!e.seen.has(r.id)) { e.seen.add(r.id); e.rules++; }
+      if (!e.procedures.includes(r.procedure)) e.procedures.push(r.procedure);
+      by.set(k, e);
+    }
+  }
+  return Array.from(by.values()).map(({ seen: _seen, ...x }) => x).sort((a, b) => b.rules - a.rules || a.crismac.localeCompare(b.crismac));
+}
+
+export interface ProcedureCoverage { procedure: string; total: number; ready: number }
+
+export function coverageByProcedure(rules: DdMigratedRule[]): ProcedureCoverage[] {
+  const by = new Map<string, ProcedureCoverage>();
+  for (const r of rules) {
+    const e = by.get(r.procedure) ?? { procedure: r.procedure, total: 0, ready: 0 };
+    e.total++;
+    if (r.status === 'ready') e.ready++;
+    by.set(r.procedure, e);
+  }
+  return Array.from(by.values());
 }
 
 const uniq = (xs: string[]) => Array.from(new Set(xs));

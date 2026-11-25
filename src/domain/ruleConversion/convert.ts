@@ -6,6 +6,7 @@ import { tableByName } from '../selectors';
 import { buildMappingIndex, logicalTable, placeColumn, resolveColumn, type MappingIndex } from './resolve';
 import { mapExpr, parseSqlExpr, sqlText, walkExpr, type Expr } from './sqlExpr';
 import { foldConstants, translate } from './translate';
+import { DEFAULT_PARAM_MAPPINGS } from './timeKey';
 
 /*
  * CrisMac procedure -> TRAQ rules. Pipeline per written column:
@@ -22,11 +23,10 @@ import { foldConstants, translate } from './translate';
 export const DEFAULT_SETTINGS: ConversionSettings = {
   effectiveStartDate: '',
   paramValues: { '@TIMEKEY': '' },
-  paramMappings: { '@PROCESSDATE': '"{ENTITY}"."var"."BUSINESS_DATE"' },
+  paramMappings: { ...DEFAULT_PARAM_MAPPINGS },
 };
-const PARAM_NOTES: Record<string, string> = {
-  '@PROCESSDATE': 'default: the run-date variable BUSINESS_DATE of FPM_DA_RULES row 6 (CRISMAC column: "the run date"); it is defined on FCT_PRODUCT_MASTER',
-};
+const RUN_DATE_NOTE = 'default: the run-date variable BUSINESS_DATE of FPM_DA_RULES row 6 (CRISMAC column: "the run date"); it is defined on FCT_PRODUCT_MASTER. The procedure sets it from SysDayMatrix at TimeKey = @TIMEKEY';
+const PARAM_NOTES: Record<string, string> = { '@PROCESSDATE': RUN_DATE_NOTE, '@PROCESSINGDATE': RUN_DATE_NOTE };
 
 const WRITE_TYPES = new Set(['UPDATE', 'INSERT', 'MERGE', 'SELECT_INTO']);
 const DATE_PARTS = new Set(['DAY', 'DD', 'D', 'DY', 'DAYOFYEAR', 'MONTH', 'MM', 'M', 'YEAR', 'YY', 'YYYY', 'WEEK', 'WK', 'WW', 'QUARTER', 'QQ', 'Q', 'HOUR', 'HH', 'MINUTE', 'MI', 'N', 'SECOND', 'SS', 'S']);
@@ -160,10 +160,13 @@ function buildRule(
   const crismacLogic = sqlText(value);
 
   // ---- parameters ----
+  const values = Object.fromEntries(Object.entries(settings.paramValues).map(([k, v]) => [k.toUpperCase(), v]));
+  const mappings = { ...DEFAULT_PARAM_MAPPINGS, ...Object.fromEntries(Object.entries(settings.paramMappings).map(([k, v]) => [k.toUpperCase(), v])) };
+
+  // @TIMEKEY has no TRAQ equivalent and the workbook has no SysDayMatrix rows, so a cut-off such as @TIMEKEY > 26267 cannot be turned
+  // into a date without guessing a calendar. It stays unresolved ([[PARAM @TIMEKEY]], blocking export) unless the user gives it a value.
   const vars = new Set<string>();
   walkExpr(value, (n) => { if (n.k === 'var') vars.add(n.name); });
-  const values = Object.fromEntries(Object.entries(settings.paramValues).map(([k, v]) => [k.toUpperCase(), v]));
-  const mappings = Object.fromEntries(Object.entries(settings.paramMappings).map(([k, v]) => [k.toUpperCase(), v]));
   const params: ParamResolution[] = Array.from(vars).sort().map((name) => {
     if (values[name]?.trim()) return { name, status: 'folded', value: values[name].trim(), note: 'value set in the conversion settings; comparisons with it were evaluated' };
     if (mappings[name]?.trim()) return { name, status: 'mapped', value: mappings[name].replace(/\{ENTITY\}/g, entity || 'TABLE'), note: PARAM_NOTES[name] ?? 'mapping set in the conversion settings' };

@@ -1,14 +1,16 @@
 import { Check, Trash2, Undo2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AiInsightPanel } from '@/components/AiInsightPanel';
 import { ConfirmDialog } from '@/components/Dialog';
 import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Button, Card, CardHeader, DataTable, Input, OriginBadge, PageHeader, Progress, Select, SimulatedBadge, Tabs } from '@/components/ui';
 import { noResult, useAsync } from '@/hooks/useAsync';
 import { services } from '@/services';
 import { clearMappingDecisionAndRevalidate, removeMappingAndRevalidate } from '@/stores/approvalWorkflow';
+import { useEnrichment } from '@/stores/enrichmentStore';
 import { selectReviewedMappings, useReviewStore } from '@/stores/reviewStore';
+import { EnrichmentPanel } from './EnrichmentPanel';
+import { ProposalsPanel } from './ProposalsPanel';
 import type { ColumnAnalysis, MappingIssueSummary, MappingRow, ColumnMappingStatus, Suggestion } from '@/types';
 
 type Tab = 'suggestions' | 'documented' | 'unfed' | 'manual';
@@ -19,6 +21,7 @@ export function MappingPage() {
   const [table, setTable] = useState(params.get('table') ?? '');
   const [tab, setTab] = useState<Tab>('suggestions');
   const lastError = useReviewStore((s) => s.lastError);
+  const syncNote = useReviewStore((s) => s.syncNote);
   return (
     <div>
       <PageHeader
@@ -34,6 +37,7 @@ export function MappingPage() {
         </span>}
       />
       {lastError && <div className="mb-3 rounded-md border border-bad bg-badbg p-2 text-xs text-bad">{lastError}</div>}
+      {syncNote && <div role="status" className="mb-3 rounded-md border border-border p-2 text-xs text-warn">{syncNote}</div>}
       <AutoSaved onOpen={setTable} />
       <Card className="mb-4">
         <CardHeader title="Target table" subtitle="Tables that have at least one column no mapping feeds" />
@@ -54,7 +58,8 @@ export function MappingPage() {
             { id: 'suggestions', label: <span className="flex items-center gap-1.5">Suggestions <SimulatedBadge /></span> },
             { id: 'documented', label: 'Documented mappings' }, { id: 'unfed', label: 'Unmapped & ambiguous' }, { id: 'manual', label: 'Manual mapping' },
           ]} />
-          {tab === 'suggestions' && <AiInsightPanel title="AI mapping recommendations" resetKey={table} run={(o) => services.ai.rankMappings(table, o)} actionLabel="Rank candidates with AI" />}
+          {tab === 'suggestions' && <EnrichmentPanel table={table} />}
+          {tab === 'suggestions' && <ProposalsPanel table={table} />}
           {tab === 'suggestions' && <Suggestions table={table} />}
           {tab === 'documented' && <Documented table={table} />}
           {tab === 'unfed' && <Unfed table={table} />}
@@ -97,7 +102,8 @@ function AutoSaved({ onOpen }: { onOpen: (table: string) => void }) {
 }
 
 function Suggestions({ table }: { table: string }) {
-  const state = useAsync(() => services.mapping.getSuggestions(table), [table]);
+  const enrich = useEnrichment(table);
+  const state = useAsync(() => services.mapping.getSuggestions(table, enrich), [table, enrich?.profile?.id, enrich?.embeddings?.id]);
   const decisions = useReviewStore((s) => s.mappingDecisions);
   const review = useReviewStore((s) => s.reviewMapping);
   const clear = clearMappingDecisionAndRevalidate;
@@ -111,7 +117,8 @@ function Suggestions({ table }: { table: string }) {
         const rows = all.filter((s) => s.confidence >= min && (status === 'all' || stat(s) === status));
         const pendingCount = rows.filter((s) => stat(s) === 'pending').length;
         const mk = (s: Suggestion) => ({ id: s.id, targetTable: s.targetTable, targetColumn: s.targetColumn, targetType: s.targetType, sourceTable: s.sourceTable, sourceColumn: s.sourceColumn, sourceType: s.sourceType });
-        const bulk = async () => { for (const s of rows) if (stat(s) === 'pending') await review(s.id, 'approved', `Bulk approve >= ${min}%`, mk(s)); };
+        const meta = (s: Suggestion) => ({ origin: 'heuristic' as const, provenance: s.provenance, confidence: s.confidence, transformation: s.transformation });
+        const bulk = async () => { for (const s of rows) if (stat(s) === 'pending') await review(s.id, 'approved', `Bulk approve >= ${min}%`, mk(s), meta(s)); };
         return (
           <Card>
             <div className="flex flex-wrap items-center gap-3 border-b border-border p-3 text-sm">
@@ -132,12 +139,12 @@ function Suggestions({ table }: { table: string }) {
                 { key: 'tgt', header: 'Target', render: (s) => <div className="font-mono text-xs">{s.targetColumn}<div className="text-muted">{s.targetType || '-'}</div></div> },
                 { key: 'src', header: 'Suggested source', render: (s) => <div className="font-mono text-xs">{s.sourceTable}.{s.sourceColumn}<div className="text-muted">{s.sourceType || '-'}</div></div> },
                 { key: 'c', header: 'Confidence', className: 'w-36', render: (s) => <div><div className="mb-1 text-xs tabular-nums">{s.confidence}%</div><Progress value={s.confidence} tone={s.confidence >= 75 ? 'ok' : s.confidence >= 50 ? 'warn' : 'bad'} /></div> },
-                { key: 'i', header: 'Flags', render: (s) => <div className="space-y-1 text-xs">{s.ambiguous && <Badge tone="warn">ambiguous</Badge>}{s.compat !== 'compatible' && s.compat !== 'unknown' && <Badge tone={s.compat === 'incompatible' ? 'bad' : 'warn'}>{s.compat}</Badge>}{s.issues.map((i) => <div key={i} className="text-muted">{i}</div>)}{s.transformation && <div className="rounded border border-border p-1"><b>Transformation:</b> {s.transformation}</div>}{s.reasons.filter((r) => r.startsWith('Semantic:') || r.startsWith('Context:')).map((r) => <div key={r} className="text-muted">{r}</div>)}</div> },
+                { key: 'i', header: 'Flags', render: (s) => <div className="space-y-1 text-xs">{s.provenance && s.provenance !== 'workbook' && <Badge tone="info">{s.provenance}</Badge>}{s.ambiguous && <Badge tone="warn">ambiguous</Badge>}{s.compat !== 'compatible' && s.compat !== 'unknown' && <Badge tone={s.compat === 'incompatible' ? 'bad' : 'warn'}>{s.compat}</Badge>}{s.issues.map((i) => <div key={i} className="text-muted">{i}</div>)}{s.transformation && <div className="rounded border border-border p-1"><b>Transformation:</b> {s.transformation}</div>}{s.reasons.filter((r) => r.startsWith('Semantic:') || r.startsWith('Context:')).map((r) => <div key={r} className="text-muted">{r}</div>)}</div> },
                 { key: 'st', header: 'Status', render: (s) => <Badge tone={stat(s) === 'approved' ? 'ok' : stat(s) === 'rejected' ? 'bad' : 'neutral'}>{stat(s)}</Badge> },
                 { key: 'a', header: '', render: (s) => (
                   <div className="flex gap-1">
-                    <Button size="icon" variant="success" aria-label="Approve" title="Approve" onClick={() => review(s.id, 'approved', '', mk(s))}><Check size={14} /></Button>
-                    <Button size="icon" variant="danger" aria-label="Reject" title="Reject" onClick={() => review(s.id, 'rejected', '', mk(s))}><X size={14} /></Button>
+                    <Button size="icon" variant="success" aria-label="Approve" title="Approve" onClick={() => review(s.id, 'approved', '', mk(s), meta(s))}><Check size={14} /></Button>
+                    <Button size="icon" variant="danger" aria-label="Reject" title="Reject" onClick={() => review(s.id, 'rejected', '', mk(s), meta(s))}><X size={14} /></Button>
                     {decisions[s.id] && <Button size="icon" variant="outline" aria-label="Undo" title="Reset to pending" onClick={() => clear(s.id)}><Undo2 size={14} /></Button>}
                   </div>) },
               ]} />
@@ -192,7 +199,8 @@ function Unfed({ table }: { table: string }) {
   const decisions = useReviewStore((s) => s.mappingDecisions);
   const manual = useReviewStore((s) => s.manualMappings);
   const reviewed = useMemo(() => selectReviewedMappings({ mappingDecisions: decisions, manualMappings: manual }), [decisions, manual]);
-  const state = useAsync(() => services.mapping.getAnalysis(table, reviewed), [table, reviewed]);
+  const enrich = useEnrichment(table);
+  const state = useAsync(() => services.mapping.getAnalysis(table, reviewed, enrich), [table, reviewed, enrich?.profile?.id, enrich?.embeddings?.id]);
   const [open, setOpen] = useState<string | null>(null);
   const [filter, setFilter] = useState<ColumnMappingStatus | 'all'>('all');
   return (

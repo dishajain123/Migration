@@ -2,6 +2,10 @@ import type {
   FlowColumnEdge, LineageFlow, ProcObject, ProcSource, Relationship, Suggestion, TableAnalysis, TableDetail, UnfedColumn, ValidationReport,
 } from '@/types';
 import type { AiInsight, ChatMessage } from '@/types/ai';
+import type { ProfileMetadata } from '@/types/profile';
+import { extractJson } from './jsonExtract';
+import { formatProposalInsight, parseMappingProposals, type ProposalParseInput } from './mappingProposals';
+import { describeProfile } from './profile';
 
 // Pure prompt builders and response parsers for the AI feature of each agent. They only restate workbook-derived
 // context; the rules below forbid the model from adding anything else. No provider or model names appear here.
@@ -85,36 +89,78 @@ export function procedureExplainPrompt(o: ProcObject, src?: ProcSource): PromptS
   return spec('Explain what this procedure/object does, step by step, based only on the SQL or references given. Do not rewrite or translate the SQL. Suggested titles: "Purpose", "Steps", "Tables touched", "Unclear or missing".', INSIGHT_SCHEMA, parts.join('\n'));
 }
 
-// ---- Agent 4: Mapping (the model may only choose among supplied candidates) ----
-export interface MappingContext { table: string; unfed: UnfedColumn[]; suggestions: Suggestion[]; analysis?: TableAnalysis }
+// ---- Agent 4: Mapping. The model PROPOSES; the deterministic validator CHECKS (domain/mappingProposals.ts). ----
+export interface SchemaTable { table: string; columns: { name: string; type: string }[] }
+export interface MappingContext {
+  table: string; unfed: UnfedColumn[]; suggestions: Suggestion[]; analysis?: TableAnalysis;
+  /** The full candidate source schema (every column the engine compared, grouped by table). Lets the model find matches the heuristics missed. */
+  schema?: SchemaTable[];
+  /** Opt-in profile: descriptions and statistics are included; sample values only when the profile allows sharing them. */
+  profile?: ProfileMetadata;
+  /** Few-shot lines quoted verbatim from workbook remarks, FPM_DA_RULES, sample procedure SQL and earlier human approvals (domain/transformExamples.ts). */
+  examples?: string[];
+  /** Earlier human rejections for this table: pairings the model must not propose again. */
+  decisionNotes?: string[];
+}
 
-const MAPPING_SCHEMA = 'JSON schema: {"picks": [{"targetColumn": string, "candidateId": string (copied exactly from the context), "confidence": integer 0-100, "reason": string}], "unresolved": [{"targetColumn": string, "reason": string}]}. Choose candidateId ONLY from the listed candidates. If none is plausible, put the column in "unresolved".';
+/** Bounds the prompt: beyond this many schema columns the listing is cut and says so. */
+export const MAX_SCHEMA_COLUMNS = 600;
+
+const MAPPING_SCHEMA = [
+  'JSON schema: {"picks": [{"targetColumn": string,',
+  '"candidateId": string (a heuristic candidate id copied exactly from the context) OR "sources": [{"table": string, "column": string}] (names copied exactly from SOURCE SCHEMA),',
+  '"transformation": string (optional), "confidence": integer 0-100, "reason": string}], "unresolved": [{"targetColumn": string, "reason": string}]}.',
+  'Use EITHER candidateId OR sources in a pick, never both. Prefer a heuristic candidate when it is right; use sources when a better column exists in SOURCE SCHEMA',
+  '(a different name, several columns that together feed one target, or one source column feeding several targets).',
+  'Add "transformation" ONLY when the types or documented logic require a conversion: ONE T-SQL value expression over the proposed source columns (CAST/CONVERT, a CASE lookup or conditional, a concatenation);',
+  'no statements, no subqueries, no comments, no columns outside the proposed sources. It is parsed and discarded if invalid. Omit it for a plain copy. EXAMPLES show how this bank writes such logic: imitate their style, never copy them for unrelated columns.',
+  'NEVER write a table or column that is not in SOURCE SCHEMA: such picks are discarded automatically. If nothing is plausible, put the column in "unresolved".',
+].join(' ');
 
 export function mappingPrompt(c: MappingContext): { prompt: PromptSpec; candidateIds: Set<string> } {
   const byCol = new Map<string, Suggestion[]>();
   for (const s of c.suggestions) byCol.set(s.targetColumn, [...(byCol.get(s.targetColumn) ?? []), s]);
-  const cols = c.unfed.filter((u) => byCol.has(u.targetColumn)).slice(0, 25);
+  const withCands = c.unfed.filter((u) => byCol.has(u.targetColumn)).slice(0, 25);
   const ids = new Set<string>();
-  const block = cols.map((u) => {
+  const meta = (table: string, column: string) => (c.profile ? describeProfile(c.profile, table, column) : '');
+  const block = withCands.map((u) => {
     const cands = (byCol.get(u.targetColumn) ?? []).slice(0, 4).map((s) => { ids.add(s.id); return `   * candidateId=${s.id}: ${s.sourceTable}.${s.sourceColumn} (${s.sourceType}); heuristic reasons: ${s.reasons.join(', ') || 'none'}; issues: ${s.issues.join(', ') || 'none'}`; });
-    return `- ${u.targetColumn} ${u.targetType} (unfed: ${u.reason})\n${cands.join('\n')}`;
+    const m = meta(c.table, u.targetColumn);
+    return `- ${u.targetColumn} ${u.targetType} (unfed: ${u.reason})${m ? ` [${m}]` : ''}\n${cands.join('\n')}`;
   }).join('\n');
-  // Engine context the model may weigh (never a licence to pick outside the offered candidates).
+  // Engine context the model may weigh.
   const a = c.analysis;
   const ctxLines = a ? [
     `Source tables feeding this target (lineage): ${a.context.sourceTables.join(', ') || 'none documented'}; candidate pool ${a.context.poolSize} column(s).`,
     `Evidence available: ${a.context.remarkRows} workbook remark row(s), ${a.context.daRules} FPM_DA_RULES row(s), procedure SQL ${a.context.procedureSqlLoaded ? `loaded (writers: ${a.context.procedureWriters.join(', ') || 'none for this table'})` : 'not loaded'}; column descriptions: ${a.context.columnDescriptions}.`,
+    ...(a.context.enrichment?.length ? [`Non-workbook inputs active (user-supplied, treat as unverified): ${a.context.enrichment.join('; ')}.`] : []),
   ] : [];
-  const offered = new Set(cols.map((u) => u.targetColumn));
-  const notRankable = (a?.columns ?? []).filter((x) => !offered.has(x.targetColumn) && x.status !== 'resolved').slice(0, 25)
-    .map((x) => `- ${x.targetColumn}: ${x.status}${x.best?.rejection ? ` (best rejected: ${x.best.table}.${x.best.column} - ${x.best.rejection})` : ''}`);
+  const offered = new Set(withCands.map((u) => u.targetColumn));
+  const open = c.unfed.filter((u) => !offered.has(u.targetColumn)).slice(0, 25).map((u) => {
+    const x = a?.columns.find((y) => y.targetColumn === u.targetColumn);
+    if (x?.status === 'resolved') return '';
+    const m = meta(c.table, u.targetColumn);
+    return `- ${u.targetColumn} ${u.targetType} (unfed: ${u.reason}; heuristic outcome: ${x?.status ?? 'none'}${x?.best?.rejection ? `, best rejected: ${x.best.table}.${x.best.column} - ${x.best.rejection}` : ''})${m ? ` [${m}]` : ''}`;
+  }).filter(Boolean);
+  let shown = 0;
+  const schemaBlock = (c.schema ?? []).map((t) => {
+    const room = Math.max(0, MAX_SCHEMA_COLUMNS - shown);
+    const cols = t.columns.slice(0, room);
+    shown += cols.length;
+    if (cols.length === 0) return '';
+    return `${t.table}\n${cols.map((col) => { const m = meta(t.table, col.name); return `  - ${col.name} ${col.type || '(type not provided)'}${m ? ` [${m}]` : ''}`; }).join('\n')}${cols.length < t.columns.length ? `\n  [${t.columns.length - cols.length} more columns not shown]` : ''}`;
+  }).filter(Boolean).join('\n');
+  const total = (c.schema ?? []).reduce((n, t) => n + t.columns.length, 0);
   const context = [
     `Target table: ${c.table}`, ...ctxLines,
-    `Unfed columns with candidate source columns:\n${block || 'none'}`,
-    notRankable.length ? `Columns with NO acceptable candidate (report them in "unresolved"; do not invent one):\n${notRankable.join('\n')}` : '',
+    `Unfed columns with heuristic candidates:\n${block || 'none'}`,
+    open.length ? `Unfed columns with NO heuristic candidate (propose from SOURCE SCHEMA, or report in "unresolved"):\n${open.join('\n')}` : '',
+    schemaBlock ? `SOURCE SCHEMA (every source column the engine compared; the only columns you may use)${total > shown ? ` - showing ${shown} of ${total}` : ''}:\n${schemaBlock}` : 'SOURCE SCHEMA: Not provided; use candidateId only.',
+    c.examples?.length ? `EXAMPLES (verbatim from the workbook, sample procedure SQL and earlier human approvals; evidence of this bank's style, not rules):\n${c.examples.map((e) => `- ${e}`).join('\n')}` : 'EXAMPLES: Not provided in workbook.',
+    c.decisionNotes?.length ? `EARLIER HUMAN DECISIONS:\n${c.decisionNotes.map((e) => `- ${e}`).join('\n')}` : '',
   ].filter(Boolean).join('\n');
   return {
-    prompt: spec('For each target column pick the most semantically plausible candidate, judging by names, data types and the heuristic reasons. Your confidence is an estimate, not a measurement.', MAPPING_SCHEMA, context),
+    prompt: spec('For each unfed target column choose the most plausible source column(s), judging by names, data types, descriptions and the heuristic reasons. Your confidence is an estimate, not a measurement. Every proposal is validated against the schema and is only a draft until a human approves it.', MAPPING_SCHEMA, context),
     candidateIds: ids,
   };
 }
@@ -128,21 +174,7 @@ export function validationReviewPrompt(r: ValidationReport): PromptSpec {
 }
 
 // ---- parsing ----
-/** Extract the first top-level JSON object from model text (tolerates code fences and leading prose). */
-export function extractJson(text: string): unknown | null {
-  const t = text.replace(/```(?:json)?/gi, '');
-  const start = t.indexOf('{');
-  if (start < 0) return null;
-  let depth = 0; let inStr = false; let esc = false;
-  for (let i = start; i < t.length; i++) {
-    const ch = t[i];
-    if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
-    if (ch === '"') inStr = true;
-    else if (ch === '{') depth++;
-    else if (ch === '}' && --depth === 0) { try { return JSON.parse(t.slice(start, i + 1)); } catch { return null; } }
-  }
-  return null;
-}
+export { extractJson };
 
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []);
 
@@ -155,24 +187,14 @@ export function parseInsight(text: string): AiInsight | null {
   return { summary: o.summary.trim(), sections };
 }
 
-/** Convert mapping picks to an insight, dropping any pick whose candidate the model was not offered. */
-export function parseMappingInsight(text: string, suggestions: Suggestion[], offered: Set<string>): AiInsight | null {
-  const o = extractJson(text) as { picks?: unknown; unresolved?: unknown } | null;
-  if (!o || !Array.isArray(o.picks)) return null;
-  const byId = new Map(suggestions.map((s) => [s.id, s]));
-  const picks: string[] = []; let dropped = 0;
-  for (const p of o.picks as { targetColumn?: unknown; candidateId?: unknown; confidence?: unknown; reason?: unknown }[]) {
-    const s = typeof p?.candidateId === 'string' && offered.has(p.candidateId) ? byId.get(p.candidateId) : undefined;
-    if (!s) { dropped++; continue; }
-    const conf = typeof p.confidence === 'number' ? Math.max(0, Math.min(100, Math.round(p.confidence))) : null;
-    picks.push(`${s.targetColumn} <- ${s.sourceTable}.${s.sourceColumn}${conf === null ? '' : ` (AI-estimated ${conf}%)`}: ${typeof p.reason === 'string' ? p.reason : 'no reason given'}`);
-  }
-  const unresolved = (Array.isArray(o.unresolved) ? o.unresolved : []).map((u: { targetColumn?: unknown; reason?: unknown }) => `${String(u?.targetColumn ?? '?')}: ${String(u?.reason ?? 'no plausible candidate')}`);
-  const sections = [];
-  if (picks.length) sections.push({ title: 'Recommended mappings', points: picks });
-  if (unresolved.length) sections.push({ title: 'No plausible candidate', points: unresolved });
-  return {
-    summary: `${picks.length} recommendation(s) among the heuristic candidates; ${unresolved.length} unresolved${dropped ? `; ${dropped} discarded because the model named a candidate that was not offered` : ''}. Recommendations are not applied until a human approves them.`,
-    sections,
-  };
+export type MappingParseContext = Partial<Pick<ProposalParseInput, 'table' | 'model' | 'validateTransformation'>>;
+
+/**
+ * Convert mapping picks to an insight. Without `ctx.model` only heuristic candidates the model was actually offered survive
+ * (the original behaviour). With it, picks naming other source columns are accepted too, but only after the deterministic
+ * validator confirms the columns exist, the types are compatible, and conflicts are flagged.
+ */
+export function parseMappingInsight(text: string, suggestions: Suggestion[], offered: Set<string>, ctx?: MappingParseContext): AiInsight | null {
+  const set = parseMappingProposals(text, { table: ctx?.table ?? suggestions[0]?.targetTable ?? '', suggestions, offered, model: ctx?.model, validateTransformation: ctx?.validateTransformation });
+  return set ? formatProposalInsight(set, !!ctx?.model) : null;
 }

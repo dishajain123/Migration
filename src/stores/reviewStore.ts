@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { services } from '@/services';
 import type { ManualMapping, ReviewDecision, ReviewedMapping, RuleApproval } from '@/types';
+import type { MappingDecisionRecord } from '@/types/decisions';
+import type { SuggestionProvenance } from '@/types/profile';
 
 export interface StoredDecision {
   decision: ReviewDecision;
@@ -18,7 +20,9 @@ interface ReviewState {
   approvals: Record<string, RuleApproval>;
   proceduresAnalysed: Record<string, boolean>;
   lastError: string | null;
-  reviewMapping: (id: string, decision: ReviewDecision, comment: string, mapping: ReviewedMapping) => Promise<boolean>;
+  /** Why a decision could not be stored by the backend (it is still kept in this browser). Not persisted. */
+  syncNote: string | null;
+  reviewMapping: (id: string, decision: ReviewDecision, comment: string, mapping: ReviewedMapping, meta?: DecisionMeta) => Promise<boolean>;
   clearMappingDecision: (id: string) => void;
   addManualMapping: (m: Omit<ManualMapping, 'id' | 'createdAt'>) => void;
   removeManualMapping: (id: string) => void;
@@ -29,25 +33,47 @@ interface ReviewState {
   reset: () => void;
 }
 
-const initial = { mappingDecisions: {}, manualMappings: [], ruleDecisions: {}, approvals: {}, proceduresAnalysed: {}, lastError: null };
+const initial = { mappingDecisions: {}, manualMappings: [], ruleDecisions: {}, approvals: {}, proceduresAnalysed: {}, lastError: null, syncNote: null };
+
+/** What the reviewer saw and decided about, beyond the pairing itself. */
+export interface DecisionMeta {
+  origin: MappingDecisionRecord['origin'];
+  provenance?: SuggestionProvenance;
+  confidence?: number;
+  transformation?: string;
+}
+
+export function toDecisionRecord(id: string, decision: ReviewDecision, comment: string, m: ReviewedMapping, meta: DecisionMeta | undefined, at: string): MappingDecisionRecord {
+  return {
+    id, targetTable: m.targetTable, targetColumn: m.targetColumn, sourceTable: m.sourceTable, sourceColumn: m.sourceColumn, decision,
+    origin: meta?.origin ?? (id.startsWith('ai:') ? 'ai' : id.startsWith('manual:') ? 'manual' : 'heuristic'),
+    ...(meta?.provenance ? { provenance: meta.provenance } : {}), ...(meta?.confidence !== undefined ? { confidence: meta.confidence } : {}),
+    ...(meta?.transformation ? { transformation: meta.transformation } : {}), comment, decidedAt: at,
+  };
+}
 
 export const useReviewStore = create<ReviewState>()(
   persist(
     (set, get) => ({
       ...initial,
-      async reviewMapping(id, decision, comment, mapping) {
+      async reviewMapping(id, decision, comment, mapping, meta) {
         const res = await services.mapping.submitReview(id, decision, comment);
         if (res.error) { set({ lastError: res.error.message }); return false; }
+        const at = new Date().toISOString();
         set({
           lastError: null,
-          mappingDecisions: { ...get().mappingDecisions, [id]: { decision, comment, at: new Date().toISOString(), mapping } },
+          mappingDecisions: { ...get().mappingDecisions, [id]: { decision, comment, at, mapping } },
         });
+        // Also store the decision in the backend so it outlives this tab and can feed future AI runs and evaluations.
+        void services.decisions.save(toDecisionRecord(id, decision, comment, mapping, meta, at))
+          .then((r) => set({ syncNote: r.data ? null : `Decision kept in this browser only; the backend could not store it (${r.error?.message ?? 'unknown error'}).` }));
         return true;
       },
       clearMappingDecision(id) {
         const next = { ...get().mappingDecisions };
         delete next[id];
         set({ mappingDecisions: next });
+        void services.decisions.remove(id).then((r) => { if (r.data) set({ syncNote: null }); });
       },
       addManualMapping(m) {
         const entry: ManualMapping = { ...m, id: `manual:${m.targetTable}.${m.targetColumn}:${Date.now()}`, createdAt: new Date().toISOString() };

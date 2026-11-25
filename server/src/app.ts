@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { ApiResult, ApiMeta } from '../../src/types';
-import type { ChatStreamEvent, CompletionRequest, KnowledgeStatus, ProviderId, SaveProviderRequest, TestConnectionRequest } from '../../src/types/ai';
+import type { ChatStreamEvent, CompletionRequest, EmbedResult, KnowledgeStatus, ProviderId, SaveProviderRequest, TestConnectionRequest } from '../../src/types/ai';
 import type { ChatOrchestrator } from './chatbot/orchestrator';
 import type { Env } from './config/env';
 import type { AiGateway } from './gateway';
@@ -10,10 +10,15 @@ import type { KnowledgeBase } from './knowledge_base/knowledgeBase';
 import { isProviderId } from './providers/registry';
 import { GatewayError, type FetchLike } from './providers/types';
 import { pickEmbedder } from './retrieval/embeddings';
+import { JobRunner } from './jobs/jobRunner';
+import { DecisionStore } from './mappingDecisions/decisionStore';
+import { embedSchemaTexts, SchemaEmbeddingCache } from './retrieval/schemaEmbeddings';
 import type { VectorStore } from './retrieval/vectorStore';
-import { parseChatRequest, parseKnowledgePush } from './schemas/requests';
+import { parseChatRequest, parseDecisionRecord, parseEmbedRequest, parseJobRequest, parseKnowledgePush } from './schemas/requests';
 
 const MAX_BODY = 1_000_000;
+const MAX_JOB_BODY = 12_000_000;
+const MAX_EMBED_BODY = 2_000_000;
 const MAX_KNOWLEDGE_BODY = 40_000_000;
 
 /**
@@ -54,6 +59,12 @@ export interface AppDeps {
   chat: ChatOrchestrator;
   kb: KnowledgeBase;
   vectors: VectorStore;
+  /** Cache for schema-object embeddings (Agent 4). Created per app when omitted. */
+  schemaCache?: SchemaEmbeddingCache;
+  /** Human mapping decisions (approve / reject). In-memory when omitted. */
+  decisions?: DecisionStore;
+  /** Async bulk jobs. Created per app when omitted. */
+  jobs?: JobRunner;
   fetchImpl: FetchLike;
   env?: Env;
   log?: (line: string) => void;
@@ -91,6 +102,9 @@ async function streamChat(res: ServerResponse, events: AsyncGenerator<ChatStream
 export function createApp(deps: AppDeps): Server {
   const { gateway, chat, kb, vectors } = deps;
   const log = deps.log ?? (() => undefined);
+  const schemaCache = deps.schemaCache ?? new SchemaEmbeddingCache();
+  const decisions = deps.decisions ?? new DecisionStore(null);
+  const jobs = deps.jobs ?? new JobRunner((uid, r, signal) => gateway.complete(uid, r, signal));
   return createServer(async (req, res) => {
     const started = Date.now();
     const requestId = randomUUID();
@@ -133,6 +147,32 @@ export function createApp(deps: AppDeps): Server {
         const abort = new AbortController();
         res.on('close', () => abort.abort());
         return await streamChat(res, chat.run(uid, body, abort.signal), abort, meta);
+      }
+      const seg = (s?: string): string | undefined => {
+        try { return s ? decodeURIComponent(s) : undefined; } catch { throw new GatewayError('BAD_REQUEST', 'Malformed id in the URL.'); }
+      };
+      if (parts[1] === 'mapping-decisions') {
+        const id = seg(parts[2]);
+        if (method === 'GET' && !id) return ok(decisions.list(uid));
+        if (method === 'PUT' && !id) return ok(decisions.upsert(uid, parseDecisionRecord(await readJson(req))));
+        if (method === 'DELETE' && id) return ok({ removed: decisions.remove(uid, id) });
+      }
+      if (parts[1] === 'jobs') {
+        const id = seg(parts[2]);
+        if (method === 'POST' && !id) { const j = jobs.create(uid, parseJobRequest(await readJson(req, MAX_JOB_BODY))); log(`job ${j.id} kind=${j.kind} items=${j.total}`); return ok(j); }
+        if (method === 'GET' && !id) return ok(jobs.list(uid));
+        if (method === 'GET' && id) return ok(jobs.get(uid, id));
+        if (method === 'DELETE' && id) return ok(jobs.cancel(uid, id));
+      }
+      if (method === 'POST' && parts[1] === 'embeddings') {
+        const { texts } = parseEmbedRequest(await readJson(req, MAX_EMBED_BODY));
+        const emb = pickEmbedder((id) => gateway.resolveKey(uid, id), deps.fetchImpl, deps.env);
+        if (!emb) throw new GatewayError('NOT_CONFIGURED', 'Semantic embeddings need an OpenAI or Gemini API key (AI Settings or server environment).', 409);
+        const abort = new AbortController();
+        res.on('close', () => abort.abort());
+        const result: EmbedResult = { model: emb.id, vectors: await embedSchemaTexts(emb, texts, schemaCache, abort.signal) };
+        log(`schema embeddings texts=${texts.length}`); // never log the texts: they describe the customer's schema
+        return ok(result);
       }
       if (method === 'POST' && parts[1] === 'complete') {
         const r = await gateway.complete(uid, (await readJson(req)) as unknown as CompletionRequest);

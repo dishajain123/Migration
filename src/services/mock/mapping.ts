@@ -14,10 +14,10 @@ const optionalProcs = (): Promise<ProcSource[]> => getProcSources().catch(() => 
 export const mockMapping: MappingService = {
   listTargets: () => respond(async () => targetSummaries(await getWorkbook()), { simulated: true, note: SIM }),
   getDocumented: (table) => respond(async () => (await getWorkbook()).mappings.filter((m) => m.targetTable === table), { simulated: false, note: 'Documented mappings from the workbook' }),
-  getSuggestions: (table) => respond(async () => suggestionsForTable(await getWorkbook(), table, await optionalProcs()), { simulated: true, note: SIM }),
+  getSuggestions: (table, opts) => respond(async () => suggestionsForTable(await getWorkbook(), table, await optionalProcs(), opts), { simulated: true, note: opts?.profile || opts?.embeddings ? `${SIM} Uses opt-in profile/embedding input (provenance is shown per suggestion).` : SIM }),
   getUnfed: (table) => respond(async () => unfedWithFlags(await getWorkbook(), table, await optionalProcs()), { simulated: false, note: 'Columns with no feeding mapping in the workbook' }),
-  getAnalysis: (table, reviewed) => respond(async () => {
-    const a = tableAnalysis(await getWorkbook(), table, await optionalProcs());
+  getAnalysis: (table, reviewed, opts) => respond(async () => {
+    const a = tableAnalysis(await getWorkbook(), table, await optionalProcs(), opts);
     if (!a) throw new Error(`Table ${table} not found in the workbook.`);
     return applyReviewed(a, reviewed ?? []);
   }, { simulated: true, note: SIM }),

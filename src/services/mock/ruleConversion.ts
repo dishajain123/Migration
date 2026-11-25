@@ -28,7 +28,7 @@ export const mockRuleConversion: RuleConversionService = {
     for (const p of procs) {
       const dd = await getDdExport(p.name).catch(() => null);
       if (!dd || !dd.available) { procedures.push({ name: p.name, available: false, rules: 0, note: dd?.note ?? 'dd_export.csv could not be loaded.' }); continue; }
-      const mine = migrateDdRows(model, p.name, dd.header, dd.rows, req.reviewed, index);
+      const mine = migrateDdRows(model, p.name, dd.header, dd.rows, req.reviewed, index, req.settings);
       rules.push(...mine);
       procedures.push({ name: p.name, available: true, rules: mine.length, note: dd.file });
     }

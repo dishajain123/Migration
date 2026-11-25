@@ -1,9 +1,13 @@
 import type {
-  ApiResult, BusinessRule, CatalogEntry, ConversionRequest, ConversionResult, FlowRequest, LineageFlow, RuleTemplate, SqlFileAnalysis, UploadedSql, ChatAnswer, ChatRequest, DdExport, DdMigrationResult, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
+  ApiResult, BusinessRule, CatalogEntry, ConversionRequest, ConversionResult, ConversionSettings, FlowRequest, LineageFlow, RuleTemplate, SqlFileAnalysis, UploadedSql, ChatAnswer, ChatRequest, DdExport, DdMigrationResult, ProcSource, ProcTrace, DashboardSummary, DocExpression, LineageGraph, LineageOptions, Layer, MappingIssueSummary,
   MappingRow, ProcObject, Relationship, ReviewDecision, ScopeInfo, SqlAnalysis, Suggestion, SystemKind, TableComparison, TableDetail,
   TableSummary, TableAnalysis, TargetSummary, TraceNode, UnfedColumn, ValidationReport, ValidationRequest, WorkbookModel, ReviewedMapping,
 } from '@/types';
 import type { AiInsight, ChatStreamEvent, ModelChoice, ProviderId } from '@/types/ai';
+import type { MappingDecisionRecord } from '@/types/decisions';
+import type { MappingJobStatus } from '@/types/jobs';
+import type { MappingProposalSet } from '@/types/mappingAi';
+import type { EmbeddingIndex, EnrichmentOptions, ProfileMetadata } from '@/types/profile';
 
 export interface DataModelService {
   getScope(): Promise<ApiResult<ScopeInfo>>;
@@ -41,10 +45,11 @@ export interface ProcedureService {
 export interface MappingService {
   listTargets(): Promise<ApiResult<TargetSummary[]>>;
   getDocumented(table: string): Promise<ApiResult<MappingRow[]>>;
-  getSuggestions(table: string): Promise<ApiResult<Suggestion[]>>;
+  /** `opts` is the OPTIONAL profile / embedding input (docs/PROFILE_INPUT.md). Omit it for pure workbook-only suggestions. */
+  getSuggestions(table: string, opts?: EnrichmentOptions): Promise<ApiResult<Suggestion[]>>;
   getUnfed(table: string): Promise<ApiResult<UnfedColumn[]>>;
   /** Per-column status (resolved / suggested / below-threshold / no-match / insufficient-context / declared-unmapped) with the candidate trace. Reviewer decisions resolve columns. */
-  getAnalysis(table: string, reviewed?: ReviewedMapping[]): Promise<ApiResult<TableAnalysis>>;
+  getAnalysis(table: string, reviewed?: ReviewedMapping[], opts?: EnrichmentOptions): Promise<ApiResult<TableAnalysis>>;
   getIssues(table: string): Promise<ApiResult<MappingIssueSummary>>;
   listAllTables(): Promise<ApiResult<{ name: string; columns: { name: string; dataType: string }[] }[]>>;
   submitReview(id: string, decision: ReviewDecision, comment: string): Promise<ApiResult<{ id: string; decision: ReviewDecision }>>;
@@ -67,7 +72,7 @@ export interface RuleConversionService {
   /** Extract rules, resolve CrisMac columns through Agent 4 mappings, translate to TRAQ syntax. */
   convert(req: ConversionRequest): Promise<ApiResult<ConversionResult>>;
   /** Corrected rules from the project's dd_export.csv files, with CrisMac names replaced by confirmed TRAQ columns; unmapped rules stay separate. */
-  migrateDd(req: { reviewed: ReviewedMapping[] }): Promise<ApiResult<DdMigrationResult>>;
+  migrateDd(req: { reviewed: ReviewedMapping[]; settings?: ConversionSettings }): Promise<ApiResult<DdMigrationResult>>;
 }
 
 export interface DashboardService {
@@ -91,7 +96,15 @@ export interface AgentAiService {
   explainFlow(req: FlowRequest, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
   explainProcedure(objectId: string, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
   explainSourceProcedure(name: string, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
-  rankMappings(table: string, o?: ModelChoice): Promise<ApiResult<AiInsight>>;
+  /** Text form of `proposeMappings` for panels that render an AiInsight. `enrich` is the OPTIONAL profile / embedding input. */
+  rankMappings(table: string, o?: ModelChoice, enrich?: EnrichmentOptions): Promise<ApiResult<AiInsight>>;
+  /**
+   * "LLM proposes, validator checks": the model sees the full candidate source schema and may propose columns the heuristics
+   * missed; every proposal is validated against the schema before it is returned, as an AI_DRAFT for human review.
+   */
+  proposeMappings(table: string, o?: ModelChoice, enrich?: EnrichmentOptions): Promise<ApiResult<MappingProposalSet>>;
+  /** Embeds this table's unfed columns and candidate source columns through the gateway (needs an OpenAI or Gemini key). */
+  buildEmbeddingIndex(table: string, profile?: ProfileMetadata): Promise<ApiResult<EmbeddingIndex>>;
   reviewValidation(reviewed: ReviewedMapping[], o?: ModelChoice): Promise<ApiResult<AiInsight>>;
 }
 
@@ -103,8 +116,33 @@ export interface AssistantService {
   getSuggestedQuestions(route?: string): Promise<ApiResult<string[]>>;
 }
 
+/**
+ * Human approve/reject decisions on mappings, stored by the backend (not just this browser). Approved decisions feed the
+ * next AI run's few-shot context and the evaluation scripts; rejected ones tell the model what not to propose again.
+ */
+export interface MappingDecisionService {
+  list(): Promise<ApiResult<MappingDecisionRecord[]>>;
+  save(rec: MappingDecisionRecord): Promise<ApiResult<MappingDecisionRecord>>;
+  remove(id: string): Promise<ApiResult<{ removed: boolean }>>;
+}
+
+/**
+ * Bulk AI mapping as an async job: `start` returns at once with a job id, the gateway runs one request per table in the
+ * background, and `status` reports progress. Each finished table's output is parsed and validated exactly like a single
+ * `proposeMappings` call. The job never switches provider or model by itself.
+ */
+export interface MappingJobService {
+  start(tables: string[], o?: ModelChoice, enrich?: EnrichmentOptions): Promise<ApiResult<{ jobId: string }>>;
+  status(jobId: string): Promise<ApiResult<MappingJobStatus>>;
+  /** The validated proposals for one table of a job whose item succeeded. */
+  result(jobId: string, table: string): Promise<ApiResult<MappingProposalSet>>;
+  cancel(jobId: string): Promise<ApiResult<MappingJobStatus>>;
+}
+
 export interface Services {
   ai: AgentAiService;
+  decisions: MappingDecisionService;
+  jobs: MappingJobService;
   assistant: AssistantService;
   chat: ChatService;
   dataModel: DataModelService;

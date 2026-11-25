@@ -1,6 +1,8 @@
 import type { ApiResult, KnowledgeChunk } from '@/types';
+import type { MappingDecisionRecord } from '@/types/decisions';
+import type { JobCreateRequest, JobView } from '@/types/jobs';
 import type {
-  ActiveProvider, ChatStreamEvent, ChatStreamRequest, CompletionRequest, CompletionResult, GatewayOverview, KnowledgeStatus,
+  ActiveProvider, ChatStreamEvent, ChatStreamRequest, CompletionRequest, CompletionResult, EmbedResult, GatewayOverview, KnowledgeStatus,
   ProviderId, SaveProviderRequest, TestConnectionRequest, TestConnectionResult,
 } from '@/types/ai';
 
@@ -18,6 +20,16 @@ export interface AiGatewayClient {
   status(): Promise<ApiResult<{ active: ActiveProvider | null }>>;
   /** Entry point for any agent that needs an LLM. Uses the user's active provider and model (or `req.provider`/`req.model` for one call). */
   complete(req: CompletionRequest): Promise<ApiResult<CompletionResult>>;
+  /** Human mapping decisions stored by the gateway (survive the browser tab). */
+  listDecisions(): Promise<ApiResult<MappingDecisionRecord[]>>;
+  saveDecision(rec: MappingDecisionRecord): Promise<ApiResult<MappingDecisionRecord>>;
+  removeDecision(id: string): Promise<ApiResult<{ removed: boolean }>>;
+  /** Async bulk jobs: create, poll, cancel. */
+  createJob(req: JobCreateRequest): Promise<ApiResult<JobView>>;
+  getJob(id: string): Promise<ApiResult<JobView>>;
+  cancelJob(id: string): Promise<ApiResult<JobView>>;
+  /** Vectors for schema-object texts (needs an OpenAI or Gemini key on the gateway). Fails with NOT_CONFIGURED otherwise. */
+  embed(texts: string[]): Promise<ApiResult<EmbedResult>>;
   /** Models a provider offers, using its saved key (or server env key). */
   listModels(id: ProviderId): Promise<ApiResult<string[]>>;
   knowledgeStatus(): Promise<ApiResult<KnowledgeStatus>>;
@@ -103,6 +115,13 @@ export function createAiGatewayClient(getUserId: () => string | null): AiGateway
     deactivate: () => call('POST', '/active', { provider: null }),
     status: () => call('GET', '/status'),
     complete: (req) => call('POST', '/complete', req),
+    embed: (texts) => call('POST', '/embeddings', { texts }),
+    listDecisions: () => call('GET', '/mapping-decisions'),
+    saveDecision: (rec) => call('PUT', '/mapping-decisions', rec),
+    removeDecision: (id) => call('DELETE', `/mapping-decisions/${encodeURIComponent(id)}`),
+    createJob: (req) => call('POST', '/jobs', req),
+    getJob: (id) => call('GET', `/jobs/${encodeURIComponent(id)}`),
+    cancelJob: (id) => call('DELETE', `/jobs/${encodeURIComponent(id)}`),
   };
 }
 

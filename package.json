@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && tsc -p server --noEmit && vite build",
     "typecheck": "tsc --noEmit && tsc -p server --noEmit",
     "test": "vitest run",
+    "eval:mapping": "tsx scripts/mapping-eval.ts",
     "preview": "vite preview"
   },
   "dependencies": {

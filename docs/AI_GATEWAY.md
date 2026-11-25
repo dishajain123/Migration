@@ -59,6 +59,12 @@ Model ids are fetched from each provider; none are hardcoded.
 - `server/src/store.ts` + `crypto.ts`: per-user settings in `server/.data/providers.json`, keys AES-256-GCM encrypted; master key from `GATEWAY_MASTER_KEY` or an auto-generated local file. Keys are never returned by any endpoint (only `hasKey`).
 - Frontend: `src/stores/aiStore.ts`, `src/features/aiSettings/*`, `AiStatusBanner` (shown when nothing is active).
 
+## Agent 4 endpoints (mapping upgrade)
+All require the `X-Demo-User` header like the rest of the gateway. See docs/MAPPING_EVAL.md and docs/PROFILE_INPUT.md.
+- `POST /gateway/embeddings` `{ texts: string[] }` (max 500 x 2,000 chars) -> `{ model, vectors }` (unit-length, cached per embedder in memory, `server/src/retrieval/schemaEmbeddings.ts`). Uses the same OpenAI/Gemini embedder choice as the chatbot; without either key it fails with `NOT_CONFIGURED`. The texts describe schema objects and are never logged.
+- `GET /gateway/mapping-decisions`, `PUT /gateway/mapping-decisions` (one record), `DELETE /gateway/mapping-decisions/:id`: human approve/reject decisions per user, stored in `server/.data/mapping-decisions.json` (no secrets). Approved ones feed few-shot context; `npm run eval:mapping -- --decisions=server/.data/mapping-decisions.json` evaluates against them.
+- `POST /gateway/jobs` `{ kind, label?, items: [{ id, request }] }`, `GET /gateway/jobs`, `GET /gateway/jobs/:id`, `DELETE /gateway/jobs/:id` (cancel): async bulk completion jobs (`server/src/jobs/jobRunner.ts`), max 50 items, concurrency 2, 3 active jobs per user, in memory, kept 1 h after finishing. After a `RATE_LIMITED` item the rest are marked failed (never retried or switched to another model automatically). The browser parses and validates each result.
+
 ## Demo auth (not real security)
 `src/auth/authService.ts` accepts any credentials; the session (no password) lives in sessionStorage; `RequireAuth` guards routes. The gateway identifies users by the `X-Demo-User` header, which anyone on localhost can forge: it is bound to loopback only. Replace `authService` and `resolveUser` (server/src/app.ts) for real auth.
 

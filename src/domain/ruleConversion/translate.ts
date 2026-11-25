@@ -150,7 +150,7 @@ export function translate(e: Expr, ctx: TranslateContext): Translation {
           flag({ severity: 'error', code: 'DATEDIFF_PART', message: `DATEDIFF(${part}, ...) has no documented TRAQ form; the workbook only shows day differences ("d").` });
           return `DATEDIFF(${emit(a[2], 0)},${emit(a[1], 0)},"${part.toLowerCase()}")`;
         }
-        flag({ severity: 'info', code: 'DATEDIFF_ORDER', message: 'T-SQL DATEDIFF(DAY, earlier, later) was written as DATEDIFF(later, earlier, "d"), the argument order of the live IS_PUI_NPA rule in FPM_DA_RULES. The dd_export drafts use the opposite order; confirm once in TRAQ.' });
+        flag({ severity: 'info', code: 'DATEDIFF_ORDER', message: 'T-SQL DATEDIFF(DAY, earlier, later) was written as DATEDIFF(later, earlier, "d"), the argument order of the live IS_PUI_NPA rule in FPM_DA_RULES. The dd_export drafts use T-SQL order, and the dd migration swaps them the same way; confirm once in TRAQ.' });
         return `DATEDIFF(${emit(a[2], 0)},${emit(a[1], 0)},"d")`;
       }
       case 'SUBSTRING':

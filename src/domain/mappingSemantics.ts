@@ -1,6 +1,7 @@
 import type { MappingRow, WorkbookModel } from '@/types';
 import { memo } from './memo';
 import { isFeeding, tableByName } from './selectors';
+import type { ResolvedColumnMeta } from './profile';
 import { parseType } from './typeUtils';
 
 /*
@@ -132,3 +133,68 @@ export function dateKeyPrecedents(model: WorkbookModel): MappingRow[] {
 }
 
 export const describeRow = (m: MappingRow): string => `${m.sheet} row ${m.rowNo}: ${m.sourceColumns.join(', ')} -> ${m.targetColumn} (${m.mapType || 'no map type'})`;
+
+// ---- Optional profile / metadata signals (never used unless the user supplied a profile; see docs/PROFILE_INPUT.md) ----
+
+export interface ProfileSimilarity { score: number; signals: string[] }
+
+const STOP = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'its', 'has', 'not', 'any', 'all', 'per', 'of', 'to', 'in', 'is', 'a', 'an', 'or', 'by', 'on']);
+const wordSet = (s: string | undefined): Set<string> => new Set((s ?? '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !STOP.has(w)));
+function jaccardSets(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
+const W_DESCRIPTION = 0.8;
+const W_GLOSSARY = 0.9;
+const W_VALUES = 0.9;
+const W_STATS = 0.4;
+const MIN_VALUES = 3;
+
+/**
+ * How alike two columns look from the OPTIONAL profile input: description wording, shared glossary term / synonym, value-set
+ * overlap and coarse statistics. Each signal is 0..1 and they are combined as a noisy-OR, so independent evidence
+ * accumulates but one weak signal cannot reach 1. Returns score 0 (no signals) when either column has no profile entry.
+ */
+export function profileSimilarity(target: ResolvedColumnMeta | undefined, source: ResolvedColumnMeta | undefined): ProfileSimilarity {
+  if (!target || !source) return { score: 0, signals: [] };
+  const signals: string[] = [];
+  const parts: number[] = [];
+
+  const d = jaccardSets(wordSet(target.description), wordSet(source.description));
+  if (d >= 0.2) { parts.push(W_DESCRIPTION * Math.min(1, d * 1.5)); signals.push(`Descriptions share wording (${(d * 100).toFixed(0)}% overlap)`); }
+
+  const shared = target.glossaryNames.filter((n) => source.glossaryNames.includes(n));
+  if (shared.length) { parts.push(W_GLOSSARY); signals.push(`Same glossary term or synonym: "${shared[0]}"`); }
+
+  if (target.valueSetName && source.valueSetName && target.valueSetName.toLowerCase() === source.valueSetName.toLowerCase()) {
+    parts.push(W_VALUES); signals.push(`Both use value set "${target.valueSetName}"`);
+  } else if (target.values.length >= MIN_VALUES && source.values.length >= MIN_VALUES) {
+    const j = jaccardSets(new Set(target.values), new Set(source.values));
+    if (j >= 0.3) { parts.push(W_VALUES * Math.min(1, j * 1.2)); signals.push(`Code values overlap (${(j * 100).toFixed(0)}% of the combined set)`); }
+  }
+
+  const ts = target.stats;
+  const ss = source.stats;
+  if (ts && ss) {
+    let s = 0;
+    const notes: string[] = [];
+    if (typeof ts.min === 'number' && typeof ts.max === 'number' && typeof ss.min === 'number' && typeof ss.max === 'number') {
+      const lo = Math.max(ts.min, ss.min); const hi = Math.min(ts.max, ss.max);
+      const span = Math.max(ts.max, ss.max) - Math.min(ts.min, ss.min);
+      const overlap = span > 0 ? Math.max(0, hi - lo) / span : lo === hi ? 1 : 0;
+      if (overlap >= 0.5) { s += 0.5 * overlap; notes.push(`numeric ranges overlap ${(overlap * 100).toFixed(0)}%`); }
+    }
+    if (ts.distinctCount && ss.distinctCount) {
+      const r = Math.min(ts.distinctCount, ss.distinctCount) / Math.max(ts.distinctCount, ss.distinctCount);
+      if (r >= 0.8) { s += 0.5 * r; notes.push(`similar distinct counts (${ts.distinctCount} vs ${ss.distinctCount})`); }
+    }
+    if (ts.patterns?.length && ss.patterns?.length && ts.patterns.some((p) => ss.patterns?.includes(p))) { s += 0.4; notes.push('same value pattern'); }
+    if (s > 0) { parts.push(W_STATS * Math.min(1, s)); signals.push(`Statistics agree: ${notes.join(', ')}`); }
+  }
+
+  const score = 1 - parts.reduce((acc, p) => acc * (1 - p), 1);
+  return { score: parts.length ? score : 0, signals };
+}

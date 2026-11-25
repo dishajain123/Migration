@@ -248,10 +248,22 @@ describe('convertProcedures', () => {
     expect(r.status).toBe('needs-review'); // @ProcessDate mapping is a default that must be confirmed
   });
 
-  it('leaves unset parameters as placeholders and flags them', () => {
+  it('leaves unset parameters as placeholders and flags them (no TimeKey-to-date guess is made)', () => {
     const r = rule(settings())!;
     expect(r.traq.expression).toContain('[[PARAM @TIMEKEY]]');
+    expect(r.traq.expression).not.toMatch(/\d{4}-\d{2}-\d{2}/); // 26267 is never turned into a date
     expect(r.issues.some((i) => i.code === 'PARAM_UNRESOLVED')).toBe(true);
+    expect(r.params.map((p) => p.name)).toEqual(['@PROCESSDATE', '@TIMEKEY']);
+  });
+
+  it('maps @ProcessingDate like @ProcessDate by default (both are the run date)', () => {
+    const p = analyzeProcSql({ name: 'PD', folder: 't', file: 'pd.sql' }, `CREATE PROCEDURE [PRO].[PD] AS
+      BEGIN
+        UPDATE A SET A.DPD_Overdue = DATEDIFF(DAY, A.OverDueSinceDt, @ProcessingDate) FROM ##AccountCal A
+      END`);
+    const r = convertProcedures(model, { procedures: [p], reviewed: [], settings: settings() }).rules.find((x) => x.crismacColumn === 'DPD_OVERDUE')!;
+    expect(r.traq.expression).toContain('"FCT_PRODUCT_MASTER"."var"."BUSINESS_DATE"');
+    expect(r.traq.expression).not.toContain('[[PARAM');
   });
 
   it('fails a rule whose CrisMac column has no TRAQ target', () => {

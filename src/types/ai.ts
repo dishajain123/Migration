@@ -136,4 +136,10 @@ export type ChatStreamEvent =
   | { type: 'error'; code: GatewayErrorCode; message: string };
 
 /** Knowledge chunks are built in the browser from the workbook and docs, then synced to the gateway for indexing. */
+// ---- Schema-object embeddings (Agent 4 semantic similarity) ----
+/** Texts to embed (column descriptions built by the browser). Max 500 texts of 2,000 characters. */
+export interface EmbedRequest { texts: string[] }
+/** One unit-length vector per input text, in order, plus the provider:model that produced them. */
+export interface EmbedResult { model: string; vectors: number[][] }
+
 export interface KnowledgeStatus { hash: string | null; chunks: number; embeddings: { enabled: boolean; model: string | null; indexed: number } }

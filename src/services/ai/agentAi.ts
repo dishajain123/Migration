@@ -1,27 +1,27 @@
-import { flowExplainPrompt, mappingPrompt, parseInsight, parseMappingInsight, procedureExplainPrompt, tableBriefPrompt, validationReviewPrompt, type PromptSpec } from '@/domain/aiPrompts';
+import { flowExplainPrompt, parseInsight, procedureExplainPrompt, tableBriefPrompt, validationReviewPrompt, type PromptSpec } from '@/domain/aiPrompts';
+import { buildEmbeddingIndex as buildIndex, embeddingObjects } from '@/domain/embeddingObjects';
+import { formatProposalInsight } from '@/domain/mappingProposals';
 import type { ApiResult, FlowRequest, ReviewedMapping } from '@/types';
 import type { AiInsight, CompletionResult, ModelChoice } from '@/types/ai';
+import type { MappingProposalSet } from '@/types/mappingAi';
+import type { EnrichmentOptions } from '@/types/profile';
 import { getProcSources } from '../procSource';
 import type { AiGatewayClient } from '../aiGateway';
-import type { AgentAiService, Services } from '../types';
+import type { AgentAiService, MappingDecisionService, Services } from '../types';
+import { buildMappingInput, parseMappingOutput } from './mappingInput';
+import { fail, need } from './util';
 
 type Deps = Pick<Services, 'dataModel' | 'lineage' | 'procedures' | 'mapping' | 'rules'>;
 
-const fail = <T>(code: string, message: string): ApiResult<T> => ({ data: null, meta: { simulated: false, requestId: '', latencyMs: 0 }, error: { code, message } });
-
-/** Unwrap an upstream service result or turn its failure into this call's failure. */
-async function need<T>(p: Promise<ApiResult<T>>): Promise<{ ok: true; value: T } | { ok: false; error: ApiResult<never> }> {
-  const r = await p;
-  if (r.data === null) return { ok: false, error: fail(r.error?.code ?? 'UPSTREAM', r.error?.message ?? 'Could not load the workbook data for this request.') as ApiResult<never> };
-  return { ok: true, value: r.data };
-}
+/** Texts per embedding request (the gateway accepts up to 500). */
+const EMBED_BATCH = 400;
 
 /**
  * AI features for Agents 1-5. Each method gathers workbook-derived context from the existing agent service, builds a
  * grounded prompt (domain/aiPrompts.ts) and sends it through the AI gateway, which applies the user's active
  * provider and model. Output is parsed and validated; unparseable output is an error, never a guess.
  */
-export function createAgentAi(deps: Deps, gateway: AiGatewayClient): AgentAiService {
+export function createAgentAi(deps: Deps, gateway: AiGatewayClient, decisions?: MappingDecisionService): AgentAiService {
   async function run(prompt: PromptSpec, agent: string, parse: (text: string) => AiInsight | null, o?: ModelChoice): Promise<ApiResult<AiInsight>> {
     const r = await gateway.complete({ messages: prompt.messages, json: true, maxTokens: prompt.maxTokens, temperature: 0.2, agent, provider: o?.provider, model: o?.model });
     if (r.data === null) return { data: null, meta: r.meta, error: r.error ?? { code: 'PROVIDER_ERROR', message: 'The AI request failed.' } };
@@ -32,6 +32,20 @@ export function createAgentAi(deps: Deps, gateway: AiGatewayClient): AgentAiServ
     if (!insight) return { data: null, meta, error: { code: 'BAD_OUTPUT', message: 'The model did not return the expected JSON. Try again, or choose a model that follows JSON instructions in AI Settings.' } };
     return { data: insight, meta: { ...meta, provider: c.provider, model: c.model, note: 'AI-generated from workbook context. Verify before relying on it.' } };
   };
+
+  /**
+   * Gather workbook context (plus few-shot examples and earlier human decisions), ask the model, then validate every
+   * proposal against the schema and every transformation with the SQL parser. Survivors are AI_DRAFT.
+   */
+  async function propose(table: string, choice?: ModelChoice, enrich?: EnrichmentOptions): Promise<ApiResult<MappingProposalSet>> {
+    const input = await buildMappingInput(deps, decisions, table, enrich); if (!input.ok) return input.error;
+    const { prompt } = input.value;
+    const r = await gateway.complete({ messages: prompt.messages, json: true, maxTokens: prompt.maxTokens, temperature: 0.2, agent: 'agent4-mapping', provider: choice?.provider, model: choice?.model });
+    if (r.data === null) return { data: null, meta: r.meta, error: r.error ?? { code: 'PROVIDER_ERROR', message: 'The AI request failed.' } };
+    const set = parseMappingOutput(input.value, r.data.text);
+    if (!set) return { data: null, meta: r.meta, error: { code: 'BAD_OUTPUT', message: 'The model did not return the expected JSON. Try again, or choose a model that follows JSON instructions in AI Settings.' } };
+    return { data: set, meta: { ...r.meta, provider: r.data.provider, model: r.data.model, note: 'AI proposals checked against the workbook schema and SQL parser. Each is an AI_DRAFT until you approve it.' } };
+  }
 
   return {
     async briefTable(name, choice) {
@@ -61,13 +75,25 @@ export function createAgentAi(deps: Deps, gateway: AiGatewayClient): AgentAiServ
         ?? { id: src.id, name: src.name, kind: 'crismac-procedure' as const, references: [], sheets: [], operations: [], mentionedTables: [], related: [], sqlProvided: false as const };
       return run(procedureExplainPrompt(o, src), 'agent3-procedures', parseInsight, choice);
     },
-    async rankMappings(table, choice) {
-      const unfed = await need(deps.mapping.getUnfed(table)); if (!unfed.ok) return unfed.error;
-      const sugg = await need(deps.mapping.getSuggestions(table)); if (!sugg.ok) return sugg.error;
-      const analysis = await need(deps.mapping.getAnalysis(table)); if (!analysis.ok) return analysis.error;
-      const { prompt, candidateIds } = mappingPrompt({ table, unfed: unfed.value, suggestions: sugg.value, analysis: analysis.value });
-      if (candidateIds.size === 0) return fail('NO_CONTEXT', 'No unfed columns with candidate source columns for this table.');
-      return run(prompt, 'agent4-mapping', (t) => parseMappingInsight(t, sugg.value, candidateIds), choice);
+    proposeMappings: propose,
+    async rankMappings(table, choice, enrich) {
+      const r = await propose(table, choice, enrich);
+      if (r.data === null) return { data: null, meta: r.meta, error: r.error ?? { code: 'PROVIDER_ERROR', message: 'The AI request failed.' } };
+      return { data: formatProposalInsight(r.data, true), meta: r.meta };
+    },
+    async buildEmbeddingIndex(table, profile) {
+      const m = await need(deps.dataModel.exportMetadata()); if (!m.ok) return m.error;
+      const objects = embeddingObjects(m.value, table, profile);
+      if (objects.length === 0) return fail('NO_CONTEXT', 'This table has no columns to embed.');
+      const vectors: number[][] = [];
+      let modelName = '';
+      let meta: ApiResult<unknown>['meta'] | undefined;
+      for (let i = 0; i < objects.length; i += EMBED_BATCH) {
+        const r = await gateway.embed(objects.slice(i, i + EMBED_BATCH).map((o) => o.text));
+        if (r.data === null) return { data: null, meta: r.meta, error: r.error ?? { code: 'PROVIDER_ERROR', message: 'The embedding request failed.' } };
+        modelName = r.data.model; meta = r.meta; vectors.push(...r.data.vectors);
+      }
+      return { data: buildIndex(objects, vectors, modelName, profile), meta: { ...(meta as ApiResult<unknown>['meta']), note: 'Embeddings of column names, types and profile descriptions/statistics were requested from your embedding provider.' } };
     },
     async reviewValidation(reviewed: ReviewedMapping[], choice) {
       const rep = await need(deps.rules.validate({ reviewed })); if (!rep.ok) return rep.error;

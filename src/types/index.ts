@@ -407,7 +407,17 @@ export interface Suggestion {
   sourceTable: string;
   sourceColumn: string;
   sourceType: string;
-  confidence: number; // 0-100, heuristic
+  /** 0-100. Calibrated against held-out documented mappings when `confidenceBasis` is 'calibrated'; otherwise the raw score x 100. Always Simulated. */
+  confidence: number;
+  /** The engine's raw 0-1 score before calibration. */
+  rawScore?: number;
+  confidenceBasis?: 'calibrated' | 'uncalibrated';
+  /** Held-out predictions the calibrated figure rests on. */
+  calibrationSupport?: number;
+  /** Result of the deterministic schema validator (`validateCandidateMapping`). */
+  validation?: 'valid' | 'valid_with_warnings';
+  /** 'workbook' = scored from the workbook alone; anything else used an opt-in input. Every suggestion still needs human approval. */
+  provenance?: import('./profile').SuggestionProvenance;
   /** Required conversion, when the match needs one (e.g. date key -> DATE through a workbook lookup table). */
   transformation?: string;
   reasons: string[];
@@ -456,6 +466,14 @@ export interface CandidateTrace {
   semanticNote?: string;
   /** Name tokens after abbreviation / learned-alias normalisation (target side | candidate side). */
   matchedTokens: string[];
+  /** Score added by the OPTIONAL profile input (0 in workbook-only mode) and the signals behind it. */
+  profileBonus?: number;
+  profileSignals?: string[];
+  /** Cosine similarity from the OPTIONAL embedding index, and the score it added. */
+  embeddingSimilarity?: number;
+  embeddingBonus?: number;
+  /** 'workbook' unless a non-workbook input changed this candidate's score. */
+  provenance?: import('./profile').SuggestionProvenance;
 }
 export interface ColumnAnalysis {
   targetTable: string;
@@ -479,7 +497,10 @@ export interface MappingContextSummary {
   remarkRows: number;
   procedureWriters: string[];
   procedureSqlLoaded: boolean;
-  columnDescriptions: 'Not provided in workbook';
+  /** 'Not provided in workbook' unless the user supplied an opt-in profile (then says so). */
+  columnDescriptions: string;
+  /** Non-workbook inputs that were active for this analysis (empty in workbook-only mode). */
+  enrichment?: string[];
   threshold: number;
 }
 export interface TableAnalysis {
@@ -490,7 +511,8 @@ export interface TableAnalysis {
 }
 /** A reference or rule column of a dd_export rule that has no confirmed TRAQ column. */
 export interface DdUnmappedRef {
-  role: 'rule column' | 'reads';
+  /** 'parameter' = a run parameter (@TIMEKEY, ...) the TRAQ rule cannot keep and that could not be converted without guessing. */
+  role: 'rule column' | 'reads' | 'parameter';
   crismac: string;
   status: 'approved' | 'documented' | 'name-match' | 'ambiguous' | 'missing' | 'suggested';
   reason: string;
@@ -696,6 +718,12 @@ export interface ConversionSettings {
   paramValues: Record<string, string>;
   /** CrisMac parameter -> TRAQ expression; `{ENTITY}` is replaced by the rule's TRAQ table. */
   paramMappings: Record<string, string>;
+  /**
+   * dd migration only. false (default) = full TRAQ 4X translation: DATEDIFF order, run-date variable, TimeKey columns.
+   * true = names only: entity, column and "Table"."Column" references are replaced and the CrisMac syntax is kept as written,
+   * for a side-by-side audit.
+   */
+  namesOnly?: boolean;
 }
 export interface ConversionRequest { procedures: ProcSource[]; reviewed: ReviewedMapping[]; settings: ConversionSettings }
 export interface ConversionStats { total: number; converted: number; needsReview: number; failed: number; withTarget: number; procedures: number }

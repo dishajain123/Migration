@@ -133,11 +133,14 @@ function Settings({ rules }: { rules: ConvertedRule[] }) {
         subtitle="Applied to every rule; changing them re-runs the conversion."
       />
       <div className="grid gap-4 p-4 lg:grid-cols-[16rem_1fr]">
-        <label className="space-y-1 text-xs">
-          <span className="block font-medium">Effective start date (all rules)</span>
-          <Input type="date" value={settings.effectiveStartDate} onChange={(e) => setSettings({ effectiveStartDate: e.target.value })} className="w-full" />
-          <span className="block text-muted">Effective Start Date / IN FORCE FROM. Mandatory; a rule can override it.</span>
-        </label>
+        <div className="space-y-4">
+          <label className="block space-y-1 text-xs">
+            <span className="block font-medium">Effective start date (all rules)</span>
+            <Input type="date" value={settings.effectiveStartDate} onChange={(e) => setSettings({ effectiveStartDate: e.target.value })} className="w-full" />
+            <span className="block text-muted">Effective Start Date / IN FORCE FROM. Mandatory; a rule can override it.</span>
+          </label>
+          <p className="text-[11px] text-muted">@TIMEKEY cut-offs such as @TIMEKEY &gt; 26267 are not converted to dates: the workbook has no SysDayMatrix rows to say which date a TimeKey is. Give @TIMEKEY a known value (right) to evaluate those branches.</p>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="text-muted"><tr><th className="py-1 pr-2 font-medium">Parameter</th><th className="py-1 pr-2 font-medium">Used by</th><th className="py-1 pr-2 font-medium">Known value (evaluate branches)</th><th className="py-1 font-medium">or TRAQ expression</th></tr></thead>

@@ -10,6 +10,10 @@ import {
   type CalendarLookup,
 } from './mappingSemantics';
 import { compat, parseType } from './typeUtils';
+import { profileFor } from './profile';
+import { embeddingBonus, embeddingSimilarity } from './schemaEmbedding';
+import { profileSimilarity } from './mappingSemantics';
+import type { EnrichmentOptions, SuggestionProvenance } from '@/types/profile';
 
 /*
  * Context-aware candidate analysis for Agent 4. HEURISTIC, NOT AI - every score here is Simulated and nothing is
@@ -118,6 +122,11 @@ interface PoolItem {
   projected?: Set<string>;
 }
 
+/** The source columns the engine compares for a target table (exposed for the holdout evaluation's reachability check). */
+export function candidatePool(model: WorkbookModel, t: TableDef): { table: string; column: string; type: string }[] {
+  return poolFor(model, t).items.map((i) => ({ table: i.table, column: i.column, type: i.type }));
+}
+
 function poolFor(model: WorkbookModel, t: TableDef): { items: PoolItem[]; sourceTables: string[] } {
   const items: PoolItem[] = [];
   const seen = new Set<string>();
@@ -198,8 +207,15 @@ function evidenceFor(model: WorkbookModel, t: TableDef, procs: ProcSource[] | un
 /** Type-family score for a date key resolved through a lookup: convertible, but not the same type, so below a same-family match. */
 const LOOKUP_TYPE_SCORE = 0.75;
 
+/** Weight of the OPTIONAL profile signal (a score of 1 adds this much) and the minimum profile similarity that counts at all. */
+export const PROFILE_WEIGHT = 0.35;
+export const PROFILE_MIN = 0.3;
+
+/** Per-candidate inputs from the opt-in profile / embedding index. Absent in workbook-only mode. */
+interface Enrich { profileScore: number; profileSignals: string[]; embedCos?: number; embedUsesProfile: boolean }
+
 function scoreCandidate(
-  model: WorkbookModel, p: PoolItem, targetCanon: Set<string>, targetNorm: string, targetType: string, evidence: EvidenceText[],
+  model: WorkbookModel, p: PoolItem, targetCanon: Set<string>, targetNorm: string, targetType: string, evidence: EvidenceText[], enrich?: Enrich,
 ): CandidateTrace {
   const tp = parseType(targetType);
   const sp = parseType(p.type);
@@ -216,9 +232,19 @@ function scoreCandidate(
   // Only candidate-specific evidence (a remark/rule/procedure naming the column, or this exact pair documented elsewhere) adds score.
   // The general date-key precedent shows the conversion is documented practice but adds nothing, so it never outranks a documented pair.
   const supporting = nameScore >= EVIDENCE_NAME_FLOOR ? [...textHits, ...reuse] : [];
-  const hits = [...supporting, ...precedent];
   const contextBonus = supporting.length ? EVIDENCE_BONUS : 0;
-  const score = Math.min(0.99, 0.6 * nameScore + 0.25 * typeScore + 0.15 * (exact ? 1 : 0) + contextBonus);
+  // Opt-in signals. Both are 0 unless the user supplied a profile / embedding index, so workbook-only scores are unchanged.
+  const profileBonus = enrich && enrich.profileScore >= PROFILE_MIN ? PROFILE_WEIGHT * enrich.profileScore : 0;
+  // Like workbook evidence, an embedding supports a match but never makes one on its own: it needs name similarity,
+  // workbook evidence or a profile signal as well (type score alone would otherwise let a vector clear the threshold).
+  const embBonus = enrich && (nameScore >= EVIDENCE_NAME_FLOOR || profileBonus > 0 || contextBonus > 0) ? embeddingBonus(enrich.embedCos) : 0;
+  const enrichHits = [
+    ...(profileBonus > 0 && enrich ? enrich.profileSignals.map((s) => `Profile: ${s}`) : []),
+    ...(embBonus > 0 && enrich?.embedCos !== undefined ? [`Embedding: semantic similarity ${(enrich.embedCos * 100).toFixed(0)}% (cosine)`] : []),
+  ];
+  const hits = [...supporting, ...enrichHits, ...precedent];
+  const score = Math.min(0.99, 0.6 * nameScore + 0.25 * typeScore + 0.15 * (exact ? 1 : 0) + contextBonus + profileBonus + embBonus);
+  const provenance: SuggestionProvenance = profileBonus > 0 || (embBonus > 0 && !!enrich?.embedUsesProfile) ? 'profile_enriched' : embBonus > 0 ? 'embedding_enriched' : 'workbook';
   const cmp = viaLookup
     ? { level: 'warn' as const, note: `Date key: needs a lookup through ${p.dateKey?.table} to become a DATE` }
     : compat(p.type, targetType);
@@ -229,6 +255,9 @@ function scoreCandidate(
     table: p.table, column: p.column, type: p.type, pool: p.pool, nameScore, typeScore, exact, contextBonus, score,
     accepted: !rejection, rejection, evidence: hits,
     matchedTokens: [...targetCanon].filter((x) => candCanon.has(x)),
+    provenance,
+    ...(profileBonus > 0 && enrich ? { profileBonus, profileSignals: enrich.profileSignals } : {}),
+    ...(enrich?.embedCos !== undefined ? { embeddingSimilarity: enrich.embedCos, embeddingBonus: embBonus } : {}),
     ...(viaLookup && p.dateKey ? {
       transformation: dateKeyTransformation(p.dateKey, p.table, p.column),
       semanticNote: `${p.column} is a date key (name matches ${p.dateKey.table}.${p.dateKey.keyColumn}, which pairs with ${p.dateKey.table}.${p.dateKey.dateColumn} in the workbook); compared as the date it stands for.`,
@@ -273,22 +302,41 @@ function logTrace(table: string, a: ColumnAnalysis, ctx: MappingContextSummary):
   console.groupEnd();
 }
 
-export function analyseTable(model: WorkbookModel, tableName: string, procs?: ProcSource[]): TableAnalysis | undefined {
+/**
+ * `opts` carries the OPTIONAL profile and embedding index. Omit it (the default) for pure workbook-only mode: no code path
+ * below reads either, and the result is identical to the engine before enrichment existed.
+ */
+export function analyseTable(model: WorkbookModel, tableName: string, procs?: ProcSource[], opts?: EnrichmentOptions): TableAnalysis | undefined {
   const t = model.tables.find((x) => x.name === tableName);
   if (!t) return undefined;
-  return memo(model, `engine:analysis:${tableName}:${procs ? procs.length : 'x'}`, () => {
+  const profile = opts?.profile;
+  const embeddings = opts?.embeddings;
+  return memo(model, `engine:analysis:${tableName}:${procs ? procs.length : 'x'}${profile ? `:${profile.id}` : ''}${embeddings ? `:${embeddings.id}` : ''}`, () => {
     const { items, sourceTables } = poolFor(model, t);
     const ev = evidenceFor(model, t, procs);
+    const enrichment = [
+      ...(profile ? [`profile "${profile.label ?? profile.id}" (${profile.columns.length} column entries)`] : []),
+      ...(embeddings ? [`embeddings (${embeddings.model})`] : []),
+    ];
     const ctx: MappingContextSummary = {
       sourceTables, poolSize: items.length, daRules: ev.daRules, remarkRows: ev.remarkRows, procedureWriters: ev.writers,
-      procedureSqlLoaded: !!procs && procs.length > 0, columnDescriptions: 'Not provided in workbook', threshold: ACCEPT_MIN,
+      procedureSqlLoaded: !!procs && procs.length > 0, threshold: ACCEPT_MIN,
+      columnDescriptions: profile ? `Opt-in profile "${profile.label ?? profile.id}": ${profile.columns.filter((c) => c.description).length} description(s)` : 'Not provided in workbook',
       learnedAliases: Array.from(learnedAliases(model), ([from, v]) => ({ from, to: v.to, support: v.support })).sort((a, b) => b.support - a.support),
+      ...(enrichment.length ? { enrichment } : {}),
     };
     const columns: ColumnAnalysis[] = unfedColumns(model, t).map((u) => {
       const tc = canonTokens(model, u.targetColumn);
       const tn = norm(u.targetColumn);
       const evidence = ev.byCol.get(tn) ?? [];
-      const scored = items.map((p) => scoreCandidate(model, p, tc, tn, u.targetType, evidence)).sort((a, b) => b.score - a.score);
+      const tMeta = profile ? profileFor(profile, t.name, u.targetColumn) : undefined;
+      const enrichFor = (p: PoolItem): Enrich | undefined => {
+        if (!profile && !embeddings) return undefined;
+        const ps = profileSimilarity(tMeta, profile ? profileFor(profile, p.table, p.column) : undefined);
+        const cos = embeddingSimilarity(embeddings, { table: t.name, column: u.targetColumn }, { table: p.table, column: p.column });
+        return { profileScore: ps.score, profileSignals: ps.signals, embedCos: cos, embedUsesProfile: !!embeddings?.usesProfile };
+      };
+      const scored = items.map((p) => scoreCandidate(model, p, tc, tn, u.targetType, evidence, enrichFor(p))).sort((a, b) => b.score - a.score);
       const accepted = scored.filter((c) => c.accepted);
       const declared = u.reason.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean).every((x) => NONFEED.has(x)) && u.reason !== 'no mapping row in workbook';
       let status: ColumnMappingStatus;
@@ -350,12 +398,15 @@ export function suggestionsFromAnalysis(model: WorkbookModel, analysis: TableAna
     if (c.status === 'ambiguous' && second) issues.push(`Ambiguous: near-equal candidates (next: ${second.table}.${second.column})`);
     const others = (bySource.get(colKey(b.table, b.column)) ?? []).filter((m) => m.targetTable === analysis.table && m.targetColumn && m.targetColumn !== c.targetColumn);
     if (others.length) issues.push(`Source column already feeds ${analysis.table}.${others[0].targetColumn} in the workbook`);
+    const provenance: SuggestionProvenance = b.provenance ?? 'workbook';
+    if (provenance !== 'workbook') issues.push(`Uses a non-workbook input (${provenance === 'profile_enriched' ? 'user-supplied profile metadata' : 'embedding similarity'}): confidence is not calibrated, verify before approving`);
     if (/not (fed|used|mapped|carried)|dropped/i.test(c.workbookStatus)) issues.push(`Workbook marks this target column "${c.workbookStatus}"; confirm before mapping`);
     out.push({
       id: `sug:${analysis.table}.${c.targetColumn}<-${b.table}.${b.column}`,
       targetTable: analysis.table, targetColumn: c.targetColumn, targetType: c.targetType,
       sourceTable: b.table, sourceColumn: b.column, sourceType: b.type,
-      confidence: Math.min(99, Math.round(b.score * 100)), transformation: b.transformation, reasons, issues, compat: cmp.level, ambiguous: c.status === 'ambiguous', origin: 'mock',
+      // Raw, uncalibrated engine score. `suggest.ts` replaces `confidence` with the holdout-calibrated figure (mappingEval.ts).
+      confidence: Math.min(99, Math.round(b.score * 100)), rawScore: b.score, confidenceBasis: 'uncalibrated', provenance, transformation: b.transformation, reasons, issues, compat: cmp.level, ambiguous: c.status === 'ambiguous', origin: 'mock',
     });
   }
   return out.sort((a, b) => b.confidence - a.confidence);

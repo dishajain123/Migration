@@ -54,10 +54,16 @@ describe('dd_export migration to TRAQ names', () => {
     expect(all).not.toMatch(/\[\[|UNMAPPED/i);
   });
 
-  it('keeps run parameters as written and notes them', () => {
+  it('never leaves a CrisMac run parameter in a ready rule: it is converted to the run date, or the rule waits with the reason', () => {
+    // CONTI_EXCESS_DATE has no known data type here, so the TimeKey comparison cannot be turned into a date test without guessing.
     const [r] = migrateDdRows(model, 'DPD', DD_HEADER, [row('ContiExcessDt', 'IF("AccountCal"."ContiExcessDt" > @TIMEKEY)THEN(NULL)ELSE("AccountCal"."ContiExcessDt")')], []);
-    expect(r.traqRow[4]).toContain('@TIMEKEY');
-    expect(r.notes.join(' ')).toMatch(/Run parameters/);
+    expect(r.status).toBe('needs-mapping');
+    expect(r.unmapped[0]).toMatchObject({ role: 'parameter', crismac: '@TIMEKEY' });
+    expect(r.traqRow).toEqual(r.original);
+    const [p] = migrateDdRows(model, 'DPD', DD_HEADER, [row('ContiExcessDt', 'IF("AccountCal"."ContiExcessDt" == @ProcessDate)THEN(NULL)ELSE("AccountCal"."ContiExcessDt")')], []);
+    expect(p.status).toBe('ready');
+    expect(p.traqRow[4]).toContain('"FCT_PRODUCT_MASTER"."CONTI_EXCESS_DATE" == "FCT_PRODUCT_MASTER"."var"."BUSINESS_DATE"');
+    expect(p.traqRow[4]).not.toContain('@');
   });
 
   it('uses mappings the reviewer approved in Agent 4', () => {
