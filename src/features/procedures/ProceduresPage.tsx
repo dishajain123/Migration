@@ -7,6 +7,7 @@ import { services } from '@/services';
 import { useReviewStore } from '@/stores/reviewStore';
 import type { ProcKind, ProcObject, SqlAnalysis } from '@/types';
 import { SourceProcedures } from './SourceProcedures';
+import { SqlFindings } from './SqlFindings';
 
 type Tab = 'sources' | 'catalogue' | 'expressions' | 'sql';
 const KIND_LABEL: Record<ProcKind, string> = {
@@ -149,15 +150,7 @@ function SqlAnalyzer() {
         <CardHeader title="Findings" />
         {!submitted ? <div className="p-6 text-center text-sm text-muted">Paste SQL and click Analyze.</div> : (
           <AsyncView state={state}>
-            {(a) => (
-              <div className="space-y-3 p-3 text-xs">
-                <div><div className="mb-1 font-medium">Write targets</div>{a.statements.length ? a.statements.map((s, i) => <div key={i}><Badge tone="primary">{s.type}</Badge> <span className="font-mono">{s.table}</span></div>) : <span className="text-muted">None detected</span>}</div>
-                <div><div className="mb-1 font-medium">Source tables</div>{a.sourceTables.length ? a.sourceTables.map((s) => <div key={s.name}><span className="font-mono">{s.name}</span> <Badge tone={s.knownInWorkbook ? 'ok' : 'warn'}>{s.knownInWorkbook ? 'in workbook' : 'not in workbook'}</Badge></div>) : <span className="text-muted">None detected</span>}</div>
-                <div><div className="mb-1 font-medium">Functions</div><div className="flex flex-wrap gap-1">{a.functions.map((f) => <Badge key={f}>{f}</Badge>)}{a.functions.length === 0 && <span className="text-muted">None</span>}</div></div>
-                <div><div className="mb-1 font-medium">Clauses</div><div className="flex flex-wrap gap-1">{a.clauses.map((f) => <Badge key={f}>{f}</Badge>)}{a.clauses.length === 0 && <span className="text-muted">None</span>}</div></div>
-                {a.warnings.length > 0 && <div><div className="mb-1 font-medium">Warnings</div><ul className="space-y-1 text-warn">{a.warnings.map((w) => <li key={w}>• {w}</li>)}</ul></div>}
-              </div>
-            )}
+            {(a) => <SqlFindings a={a} />}
           </AsyncView>
         )}
       </Card>

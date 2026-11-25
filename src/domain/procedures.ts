@@ -1,6 +1,6 @@
 import type { DocExpression, ProcKind, ProcObject, ProcReference, SqlAnalysis, WorkbookModel } from '@/types';
 import { memo } from './memo';
-import { tableByName } from './selectors';
+import { explainSql } from './sqlExplain';
 
 /*
  * The workbook has NO SQL bodies. This module catalogues objects that are merely REFERENCED in banners/remarks,
@@ -100,36 +100,5 @@ export function describeKind(k: ProcKind): string {
 
 /** Client-side regex analysis of pasted SQL. Heuristic only. */
 export function analyzeSql(model: WorkbookModel, sql: string): SqlAnalysis {
-  const stripped = sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  const statements: SqlAnalysis['statements'] = [];
-  const stmtRe = /\b(INSERT\s+INTO|UPDATE|MERGE\s+INTO|DELETE\s+FROM)\s+([A-Za-z0-9_.$"]+)/gi;
-  let m: RegExpExecArray | null;
-  while ((m = stmtRe.exec(stripped))) statements.push({ type: m[1].toUpperCase().replace(/\s+/g, ' '), table: m[2].replace(/"/g, '') });
-
-  const cte = new Set<string>();
-  const cteRe = /([A-Za-z0-9_]+)\s+AS\s*\(/gi;
-  while ((m = cteRe.exec(stripped))) cte.add(m[1].toUpperCase());
-
-  const src = new Set<string>();
-  const srcRe = /\b(?:FROM|JOIN)\s+([A-Za-z0-9_.$"]+)/gi;
-  while ((m = srcRe.exec(stripped))) {
-    const name = m[1].replace(/"/g, '');
-    if (!cte.has(name.toUpperCase())) src.add(name);
-  }
-  const known = tableByName(model);
-  const sourceTables = Array.from(src).map((name) => {
-    const bare = name.includes('.') ? name.split('.').pop()! : name;
-    return { name, knownInWorkbook: known.has(name) || known.has(bare) || known.has(bare.toUpperCase()) };
-  });
-
-  const fnNames = ['CASE', 'COALESCE', 'NVL', 'DECODE', 'NULLIF', 'TO_DATE', 'TO_NUMBER', 'TO_CHAR', 'TRIM', 'SUBSTR', 'GREATEST', 'LEAST', 'SUM', 'MAX', 'MIN', 'COUNT', 'ROW_NUMBER', 'LISTAGG'];
-  const functions = fnNames.filter((f) => new RegExp(`\\b${f}\\b`, 'i').test(stripped));
-  const clauses = ['WHERE', 'GROUP BY', 'HAVING', 'ORDER BY', 'UNION', 'WITH'].filter((c) => new RegExp(`\\b${c.replace(' ', '\\s+')}\\b`, 'i').test(stripped));
-
-  const warnings: string[] = [];
-  if (statements.length === 0 && /\bSELECT\b/i.test(stripped)) warnings.push('SELECT-only text: no INSERT/UPDATE/MERGE/DELETE target detected.');
-  if (statements.length === 0 && !/\bSELECT\b/i.test(stripped)) warnings.push('No recognisable SQL statement found.');
-  if (/\bMERGE\b/i.test(stripped) && !/\bWHEN\s+MATCHED\b/i.test(stripped)) warnings.push('MERGE found without WHEN MATCHED clause.');
-  for (const s of sourceTables) if (!s.knownInWorkbook) warnings.push(`Source table ${s.name} is not described in the workbook.`);
-  return { statements, sourceTables, functions, clauses, warnings };
+  return explainSql(model, sql);
 }

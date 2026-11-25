@@ -295,12 +295,45 @@ export interface DocExpression {
   sheet: string;
   rowNo: number;
 }
+export type SqlColumnHow = 'null' | 'constant' | 'copy' | 'conditional' | 'computed' | 'unparsed';
+export interface SqlColumnExplained { name: string; expression: string; how: SqlColumnHow; plain: string }
+export interface SqlStepExplanation {
+  index: number;
+  type: SqlStepType;
+  target: string;
+  targetKind: 'table' | 'working' | 'local-temp';
+  lineStart: number;
+  lineEnd: number;
+  headline: string;
+  /** Enclosing IF/ELSE conditions, verbatim. Empty when the statement always runs. */
+  condition: string;
+  where: string;
+  joins: SqlJoin[];
+  reads: string[];
+  columns: SqlColumnExplained[];
+  functions: string[];
+  /** Comment lines directly above the statement. */
+  comment: string;
+  housekeeping: boolean;
+  sql: string;
+}
+export interface SqlTableUse { name: string; role: 'read' | 'written' | 'read+written'; kind: 'table' | 'working' | 'local-temp'; knownInWorkbook: boolean; columnsWritten: string[] }
 export interface SqlAnalysis {
   statements: { type: string; table: string }[];
   sourceTables: { name: string; knownInWorkbook: boolean }[];
   functions: string[];
   clauses: string[];
   warnings: string[];
+  /** Plain-language summary lines derived only from the SQL text. Empty for the legacy regex fallback. */
+  overview: string[];
+  procedure: { name: string; params: ProcParam[]; author: string; created: string; modified: string; descriptions: string[] } | null;
+  variables: { name: string; type: string; definition: string }[];
+  tables: SqlTableUse[];
+  steps: SqlStepExplanation[];
+  functionNotes: { name: string; meaning: string }[];
+  changeLog: { line: number; text: string }[];
+  /** 'structural' = statement-level parser; 'basic' = fallback regex scan (no step detail). */
+  mode: 'structural' | 'basic';
 }
 
 // ---------- Agent 3: source procedure SQL (sample files outside the workbook) ----------
