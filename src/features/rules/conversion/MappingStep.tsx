@@ -132,7 +132,7 @@ function Settings({ rules }: { rules: ConvertedRule[] }) {
         </InfoTip></span>}
         subtitle="Applied to every rule; changing them re-runs the conversion."
       />
-      <div className="grid gap-4 p-4 lg:grid-cols-[16rem_1fr]">
+      <div className="grid gap-4 p-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
         <div className="space-y-4">
           <label className="block space-y-1 text-xs">
             <span className="block font-medium">Effective start date (all rules)</span>
@@ -150,7 +150,7 @@ function Settings({ rules }: { rules: ConvertedRule[] }) {
                   <td className="py-1.5 pr-2 font-mono">{p.name}</td>
                   <td className="py-1.5 pr-2 text-muted">{p.used} rule(s)</td>
                   <td className="py-1.5 pr-2"><Input value={val(settings.paramValues, p.name)} onChange={(e) => put('paramValues', p.name, e.target.value)} placeholder="e.g. 26400" className="h-8 w-36" aria-label={`Value of ${p.name}`} /></td>
-                  <td className="py-1.5"><Input value={val(settings.paramMappings, p.name)} onChange={(e) => put('paramMappings', p.name, e.target.value)} placeholder='e.g. "{ENTITY}"."var"."BUSINESS_DATE"' className="h-8 w-full min-w-[16rem] font-mono" aria-label={`TRAQ expression for ${p.name}`} /></td>
+                  <td className="py-1.5"><Input value={val(settings.paramMappings, p.name)} onChange={(e) => put('paramMappings', p.name, e.target.value)} placeholder='e.g. "{ENTITY}"."var"."BUSINESS_DATE"' className="h-8 w-full font-mono" aria-label={`TRAQ expression for ${p.name}`} /></td>
                 </tr>
               ))}
             </tbody>

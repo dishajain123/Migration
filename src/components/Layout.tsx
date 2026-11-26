@@ -1,5 +1,6 @@
 import { Boxes, ChevronsLeft, ChevronsRight, FileCode2, GitBranch, LayoutDashboard, LogOut, Menu, Moon, Network, ShieldCheck, Sparkles, Sun, Table2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { motion } from 'motion/react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAiStore } from '@/stores/aiStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -88,22 +89,31 @@ export function Layout() {
           </Button>
         </div>
         <nav className={cn('flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden p-2', collapsed && 'md:overflow-visible')} aria-label="Primary">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
-            <Tooltip key={to} label={label} enabled={collapsed}>
-              <NavLink
-                to={to}
-                end={end}
-                aria-label={label}
-                className={({ isActive }) => cn(
-                  'flex items-center gap-2 rounded-md px-3 py-2 text-sm',
-                  collapsed && 'md:justify-center md:px-0',
-                  isActive ? 'bg-primarybg font-medium text-primary' : 'text-muted hover:bg-surface2 hover:text-fg',
-                )}
-              >
-                <Icon size={16} className="shrink-0" />
-                <span className={cn('min-w-0 truncate', collapsed && 'md:hidden')}>{label}</span>
-              </NavLink>
-            </Tooltip>
+          {NAV.map(({ to, label, icon: Icon, end }, i) => (
+            <motion.div key={to} initial={{ opacity: 0, x: -14 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1], delay: 0.05 * i }}>
+              <Tooltip label={label} enabled={collapsed}>
+                <NavLink
+                  to={to}
+                  end={end}
+                  aria-label={label}
+                  className={({ isActive }) => cn(
+                    'relative flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors duration-150',
+                    collapsed && 'md:justify-center md:px-0',
+                    isActive ? 'font-medium text-primary' : 'text-muted hover:bg-surface2 hover:text-fg',
+                  )}
+                >
+                  {({ isActive }) => (
+                    <>
+                      {isActive && <motion.span layoutId="nav-active" className="absolute inset-0 rounded-md bg-primarybg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
+                      <motion.span className="relative z-10 flex min-w-0 items-center gap-2" whileHover={{ x: collapsed ? 0 : 3 }} transition={{ type: 'spring', stiffness: 400, damping: 28 }}>
+                        <Icon size={16} className="shrink-0" />
+                        <span className={cn('min-w-0 truncate', collapsed && 'md:hidden')}>{label}</span>
+                      </motion.span>
+                    </>
+                  )}
+                </NavLink>
+              </Tooltip>
+            </motion.div>
           ))}
         </nav>
         <div className={cn('border-t border-border p-3 text-[11px] text-muted', collapsed && 'md:hidden')}>
@@ -146,7 +156,9 @@ export function Layout() {
         </header>
         <AiStatusBanner />
         <main className="flex-1 overflow-auto p-4 md:p-6">
-          <ErrorBoundary resetKey={pathname}><Outlet /></ErrorBoundary>
+          <motion.div key={pathname} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}>
+            <ErrorBoundary resetKey={pathname}><Outlet /></ErrorBoundary>
+          </motion.div>
         </main>
       </div>
       <ChatWidget />

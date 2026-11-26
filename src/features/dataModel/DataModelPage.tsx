@@ -26,8 +26,8 @@ export function DataModelPage() {
         description="Browse CrisMac (source) and TRAQ (target) tables, columns, types, keys and documented relationships, and compare a source table against a target table."
         right={<OriginBadge meta={list.meta} />}
       />
-      <div className="grid gap-4 xl:grid-cols-[22rem_1fr]">
-        <Card>
+      <div className="grid gap-4 xl:grid-cols-[minmax(20rem,24rem)_minmax(0,1fr)]">
+        <Card className="min-w-0 self-start">
           <CardHeader title="Tables" subtitle="Filter by system or layer" />
           <div className="flex flex-wrap gap-2 border-b border-border p-3">
             <Input placeholder="Search tables..." value={search} onChange={(e) => setSearch(e.target.value)} className="min-w-[9rem] flex-1" />
@@ -39,16 +39,16 @@ export function DataModelPage() {
               {['CRISMAC', 'RECEPTION', 'STAGING', 'MART', 'APP', 'DI'].map((l) => <option key={l} value={l}>{l}</option>)}
             </Select>
           </div>
-          <div className="max-h-[70vh] overflow-auto">
+          <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
             <AsyncView state={list} isEmpty={(d) => d.length === 0} emptyMessage="No tables match the filters.">
               {(rows) => (
                 <DataTable<TableSummary>
-                  rows={rows} pageSize={30} rowKey={(r) => r.name} selectedKey={selected}
+                  rows={rows} pageSize={30} rowKey={(r) => r.name} selectedKey={selected} fixedLayout
                   onRowClick={(r) => { setSelected(r.name); setTab('columns'); }}
                   columns={[
                     { key: 'name', header: 'Table', render: (r) => <span className="font-mono text-xs">{r.name}</span> },
-                    { key: 'layer', header: 'Layer', render: (r) => <Badge tone={r.system === 'TRAQ' ? 'primary' : 'neutral'}>{r.layer}</Badge> },
-                    { key: 'cols', header: 'Cols', className: 'text-right', render: (r) => r.listedColumns },
+                    { key: 'layer', header: 'Layer', className: 'w-[7.5rem]', render: (r) => <Badge tone={r.system === 'TRAQ' ? 'primary' : 'neutral'}>{r.layer}</Badge> },
+                    { key: 'cols', header: 'Cols', className: 'w-14 text-right', render: (r) => r.listedColumns },
                   ]}
                 />
               )}
@@ -56,7 +56,7 @@ export function DataModelPage() {
           </div>
         </Card>
 
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'columns', label: 'Table detail' }, { id: 'relations', label: 'Relationships' }, { id: 'compare', label: 'Source vs target' }, { id: 'scope', label: 'Scope & gaps' }]} />
           {tab === 'columns' && <TableDetailPanel name={selected} />}
           {tab === 'relations' && <RelationshipsPanel name={selected} onOpen={(t) => { setSelected(t); setTab('columns'); }} />}

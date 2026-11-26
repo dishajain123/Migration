@@ -11,6 +11,7 @@ import { useEnrichment } from '@/stores/enrichmentStore';
 import { selectReviewedMappings, useReviewStore } from '@/stores/reviewStore';
 import { EnrichmentPanel } from './EnrichmentPanel';
 import { ProposalsPanel } from './ProposalsPanel';
+import { SourceColumnMapper } from './SourceColumnMapper';
 import type { ColumnAnalysis, MappingIssueSummary, MappingRow, ColumnMappingStatus, ReviewDecision, Suggestion } from '@/types';
 
 type Tab = 'suggestions' | 'documented' | 'unfed' | 'manual';
@@ -20,6 +21,10 @@ export function MappingPage() {
   const [params] = useSearchParams();
   const [table, setTable] = useState(params.get('table') ?? '');
   const [tab, setTab] = useState<Tab>('suggestions');
+  const [src, setSrc] = useState(() => {
+    const t = params.get('srcTable'); const c = params.get('srcColumn');
+    return t && c ? { table: t, column: c } : null;
+  });
   const lastError = useReviewStore((s) => s.lastError);
   const syncNote = useReviewStore((s) => s.syncNote);
   return (
@@ -38,6 +43,7 @@ export function MappingPage() {
       />
       {lastError && <div className="mb-3 rounded-md border border-bad bg-badbg p-2 text-xs text-bad">{lastError}</div>}
       {syncNote && <div role="status" className="mb-3 rounded-md border border-border p-2 text-xs text-warn">{syncNote}</div>}
+      {src && <SourceColumnMapper sourceTable={src.table} sourceColumn={src.column} onDone={() => setSrc(null)} onOpenTable={(t) => { setTable(t); setTab('manual'); }} />}
       <AutoSaved onOpen={setTable} />
       <Card className="mb-4">
         <CardHeader title="Target table" subtitle="Tables that have at least one column no mapping feeds" />
@@ -220,7 +226,6 @@ function Unfed({ table }: { table: string }) {
                 <div>Name aliases learned from documented mappings: <b>{a.context.learnedAliases.length}</b>{a.context.learnedAliases.length > 0 && <span className="text-muted"> (e.g. {a.context.learnedAliases.slice(0, 3).map((x) => `${x.from}→${x.to}`).join(', ')})</span>}</div>
                 <div>Column descriptions: <span className="text-muted">{a.context.columnDescriptions}</span></div>
               </div>
-              <div className="mt-2 text-muted">Skill files under .claude/skills guide the developers and the coding assistant; they are not loaded by this app at run time.</div>
             </Card>
             <Card>
               <CardHeader title="Columns with no feeding mapping" subtitle="Each column has one explicit outcome; click a row for the candidate trace" right={<SimulatedBadge />} />
@@ -275,7 +280,6 @@ function ColumnTrace({ col, threshold }: { col: ColumnAnalysis; threshold: numbe
             </table>
           </div>
         )}
-        <p className="text-muted">Console trace for every column: run <span className="font-mono">localStorage.mappingTrace = '1'</span> and reload.</p>
       </div>
     </Card>
   );

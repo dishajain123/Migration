@@ -2,6 +2,7 @@ import { AlertTriangle, ArrowRight, Check, DatabaseZap, FileCode2, RotateCcw, X 
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/Dialog';
+import { mapSourceColumnLink } from '@/features/mapping/links';
 import { Badge, Button, Card, Input, Select } from '@/components/ui';
 import { decisionOf } from '@/domain/ruleConversion/views';
 import { effectiveFields } from '@/domain/ruleConversion/templates';
@@ -56,7 +57,10 @@ export function RuleDetail({ rule, file, assessment, onOutcome }: {
           <div role="alert" className="mt-1 rounded-md border border-warn bg-surface2 p-2 text-xs">
             <div className="mb-1 flex items-center gap-1.5 font-medium"><AlertTriangle size={13} className="text-warn" /> Cannot be approved yet</div>
             <ul className="list-disc space-y-0.5 pl-4 text-muted">{assessment.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
-            <Link to="/mapping" className="mt-1 inline-block text-primary hover:underline">Fix mappings in Agent 4</Link>
+            {(() => {
+              const first = [rule.target, ...rule.references].find((r) => !['approved', 'documented', 'name-match'].includes(r.status));
+              return <Link to={first ? mapSourceColumnLink(first.crismacTable, first.crismacColumn) : '/mapping'} className="mt-1 inline-block text-primary hover:underline">{first ? `Fix mapping for ${first.crismacColumn} in Agent 4` : 'Fix mappings in Agent 4'}</Link>;
+            })()}
           </div>
         )}
       </div>
@@ -99,7 +103,12 @@ export function RuleDetail({ rule, file, assessment, onOutcome }: {
                   <td className="py-1.5 pr-2 text-muted">{role}</td>
                   <td className="py-1.5 pr-2 font-mono">{r.crismacTable}.{r.crismacColumn}</td>
                   <td className="py-1.5 pr-2 font-mono">{r.chosen ? `${r.chosen.table}.${r.chosen.column}` : '-'}</td>
-                  <td className="py-1.5"><MappingBadge status={r.status} note={r.note} /></td>
+                  <td className="py-1.5">
+                    <MappingBadge status={r.status} note={r.note} />
+                    {!['approved', 'documented', 'name-match'].includes(r.status) && (
+                      <Link to={mapSourceColumnLink(r.crismacTable, r.crismacColumn)} className="mt-0.5 block text-primary hover:underline">Map {r.crismacColumn} in Agent 4</Link>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

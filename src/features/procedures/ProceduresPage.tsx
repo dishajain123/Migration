@@ -52,8 +52,8 @@ function Catalogue() {
         const rows = all.filter((o) => (!kind || o.kind === kind) && o.name.toLowerCase().includes(search.toLowerCase()));
         const sel = all.find((o) => o.id === selected);
         return (
-          <div className="grid gap-4 xl:grid-cols-[28rem_1fr]">
-            <Card>
+          <div className="grid gap-4 xl:grid-cols-[minmax(20rem,28rem)_minmax(0,1fr)]">
+            <Card className="min-w-0 self-start">
               <CardHeader title={`Objects (${rows.length})`} right={<OriginBadge meta={state.meta} />} />
               <div className="flex gap-2 border-b border-border p-3">
                 <Input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} className="min-w-0 flex-1" />
@@ -62,11 +62,11 @@ function Catalogue() {
                   {(Object.keys(KIND_LABEL) as ProcKind[]).map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
                 </Select>
               </div>
-              <DataTable<ProcObject> rows={rows} rowKey={(o) => o.id} selectedKey={selected} onRowClick={(o) => setSelected(o.id)} pageSize={20}
+              <DataTable<ProcObject> rows={rows} rowKey={(o) => o.id} selectedKey={selected} onRowClick={(o) => setSelected(o.id)} pageSize={20} fixedLayout
                 columns={[
                   { key: 'n', header: 'Object', render: (o) => <span className="font-mono text-xs">{o.name}</span> },
-                  { key: 'k', header: 'Kind', render: (o) => <Badge tone="info">{KIND_LABEL[o.kind]}</Badge> },
-                  { key: 'a', header: '✓', render: (o) => (analysed[o.id] ? <Badge tone="ok">done</Badge> : null) },
+                  { key: 'k', header: 'Kind', className: 'w-[7.5rem]', render: (o) => <Badge tone="info">{KIND_LABEL[o.kind]}</Badge> },
+                  { key: 'a', header: '✓', className: 'w-16', render: (o) => (analysed[o.id] ? <Badge tone="ok">done</Badge> : null) },
                 ]} />
             </Card>
             {sel ? <ObjectDetail obj={sel} analysed={!!analysed[sel.id]} onToggle={() => toggle(sel.id)} /> : <Card className="p-8 text-center text-sm text-muted">Select an object to see where it is referenced and what the workbook says about it.</Card>}

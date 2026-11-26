@@ -9,7 +9,8 @@ Frontend demonstration now; production-grade AI migration platform later. Every 
 - Any simulated/mocked value (confidence %, validation results, procedure explanations, readiness scores) must be labelled `Simulated` in the UI and flagged `source: 'mock'` in the data model. Workbook-derived data is `source: 'workbook'`.
 
 ## Stack
-React + TypeScript + Vite, Tailwind, shadcn/ui, Lucide, React Flow, Recharts, Zustand. No AI SDKs, no backend, no DB in the frontend.
+React + TypeScript + Vite, MUI (`@mui/material`) for the shared primitives, Tailwind for layout utilities, Motion (`motion/react`) for animation, Lucide, React Flow, Recharts, Zustand. No AI SDKs, no backend, no DB in the frontend.
+- UI primitives live in `src/components/ui.tsx` and `Dialog.tsx` (MUI-backed, same exports as before). Colours come from the CSS variables in `src/index.css`; `src/theme/MuiProvider.tsx` builds the MUI theme from them and sets `MotionConfig reducedMotion="user"`. MUI styles are injected first so Tailwind `className` utilities still override. New screens use these primitives, not raw MUI, so look and motion stay in one place.
 
 ## Architecture rules
 - Layers: `src/types` (shared models) -> `src/data` (generated workbook JSON + mock fixtures) -> `src/services` (interfaces + mock implementations + http implementations, one per agent) -> `src/stores` (Zustand) -> `src/features/<agent>` (UI) -> `src/components` (shared).
@@ -24,7 +25,7 @@ React + TypeScript + Vite, Tailwind, shadcn/ui, Lucide, React Flow, Recharts, Zu
 
 ## Lineage explorer (Phase 9)
 - Pure logic in `src/domain/lineageFlow.ts` (traversal, column edges, grouping, layout); service methods `getCatalog` and `getFlow`; UI in `src/features/lineage/*`. Arrows are workbook mapping rows only; direct vs transformed comes from MAP TYPE, transformation text is the workbook remark verbatim. Do not add layout or tracing logic to components.
-- Reusable help: `src/components/InfoTip.tsx` (`InfoTip`, `Term`). Motion is CSS only (`anim-*` classes, disabled under reduced motion). Backlog and acceptance criteria for Phases 9-11: docs/IMPLEMENTATION_PLAN.md.
+- Reusable help: `src/components/InfoTip.tsx` (`InfoTip`, `Term`). Motion uses the Motion library (`motion/react`) in the shared primitives (card/badge/row entrances, page transition, nav indicator, count-up) plus the older `anim-*` CSS classes; all of it honours reduced motion. Animate `transform`/`opacity` only. Backlog and acceptance criteria for Phases 9-11: docs/IMPLEMENTATION_PLAN.md.
 
 ## CrisMac SQL -> TRAQ rule migration (Phase 10)
 - Agent 5 tab "CrisMac SQL → TRAQ rules" (`/rules?tab=convert`): upload -> analyse (Agent 3 parser) -> map (Agent 4 + workbook) -> review -> export. Pure logic in `src/domain/ruleConversion/` (one module per stage, see the business-rule-validation skill); service `RuleConversionService`; UI `src/features/rules/conversion/`.

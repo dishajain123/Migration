@@ -35,14 +35,14 @@ export function SourceProcedures() {
                   <span>Ready to migrate this logic? Agent 5 converts these procedures into TRAQ rules using the Agent 4 mappings, with review and Excel/CSV export.</span>
                   <Link to="/rules?tab=convert" className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-sm font-medium text-primaryfg hover:opacity-90">Convert to TRAQ rules</Link>
                 </div>
-                <div className="grid gap-4 xl:grid-cols-[26rem_1fr]">
-                  <Card>
+                <div className="grid gap-4 xl:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)]">
+                  <Card className="min-w-0 self-start">
                     <CardHeader title="Execution order" right={<OriginBadge meta={sources.meta} />} />
-                    <DataTable<ProcSource> rows={list} rowKey={(p) => p.id} selectedKey={selected} onRowClick={(p) => setSelected(p.id)} pageSize={20}
+                    <DataTable<ProcSource> rows={list} rowKey={(p) => p.id} selectedKey={selected} onRowClick={(p) => setSelected(p.id)} pageSize={20} fixedLayout
                       columns={[
-                        { key: 's', header: 'Stage', render: (p) => <span className={mono}>{p.stage || '-'}</span> },
+                        { key: 's', header: 'Stage', className: 'w-16', render: (p) => <span className={mono}>{p.stage || '-'}</span> },
                         { key: 'n', header: 'Procedure', render: (p) => <span className={`${mono} break-all`}>{p.name}</span> },
-                        { key: 't', header: 'TRAQ', render: (p) => (traceOf(p.name)?.status === 'traceable' ? <Badge tone="ok">linked</Badge> : <Badge tone="warn">no link</Badge>) },
+                        { key: 't', header: 'TRAQ', className: 'w-20', render: (p) => (traceOf(p.name)?.status === 'traceable' ? <Badge tone="ok">linked</Badge> : <Badge tone="warn">no link</Badge>) },
                       ]} />
                   </Card>
                   {sel ? <Detail proc={sel} trace={traceOf(sel.name)} /> : <Card className="p-8 text-center text-sm text-muted">Select a procedure to see its statements, the columns it assigns, and how they relate to the TRAQ model.</Card>}

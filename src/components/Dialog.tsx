@@ -1,59 +1,48 @@
+import Grow from '@mui/material/Grow';
+import MuiDialog from '@mui/material/Dialog';
 import { X } from 'lucide-react';
-import { useEffect, useId, useRef, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { cn } from '@/lib/cn';
+import { useId, type ReactNode } from 'react';
 import { Button } from './ui';
 
-/** Accessible modal: focus moves in and returns on close, Esc and backdrop close, page scroll locked. */
+const WIDTH = { sm: 448, md: 672, lg: 896, xl: 1152 } as const;
+
+/**
+ * Accessible modal on MUI's Dialog: focus is trapped and returns on close, Esc and backdrop close, page scroll locked.
+ * It grows in and fades out; the backdrop fades.
+ */
 export function Dialog({ open, onClose, title, description, children, footer, size = 'md' }: {
   open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children?: ReactNode; footer?: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }) {
-  const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descId = useId();
-
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } };
-    document.addEventListener('keydown', onKey);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const t = window.setTimeout(() => ref.current?.querySelector<HTMLElement>('[data-autofocus], button, [href], input, select, textarea')?.focus(), 0);
-    return () => {
-      window.clearTimeout(t);
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = overflow;
-      previous?.focus?.();
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
-  return createPortal(
-    <div className="anim-fade fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={description ? descId : undefined}
-        className={cn('anim-pop flex max-h-[90vh] w-full flex-col rounded-xl border border-border bg-surface shadow-2xl', {
-          sm: 'max-w-md', md: 'max-w-2xl', lg: 'max-w-4xl', xl: 'max-w-6xl',
-        }[size])}
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-3">
-          <div className="min-w-0">
-            <h2 id={titleId} className="truncate text-base font-semibold">{title}</h2>
-            {description && <p id={descId} className="mt-0.5 text-xs text-muted">{description}</p>}
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close dialog"><X size={16} /></Button>
+  return (
+    <MuiDialog
+      open={open}
+      onClose={onClose}
+      maxWidth={false}
+      TransitionComponent={Grow}
+      transitionDuration={{ enter: 220, exit: 150 }}
+      aria-labelledby={titleId}
+      aria-describedby={description ? descId : undefined}
+      PaperProps={{
+        sx: {
+          width: '100%', maxWidth: WIDTH[size], maxHeight: '90vh', m: 2, display: 'flex', flexDirection: 'column',
+          borderRadius: '12px', border: '1px solid var(--border)', bgcolor: 'var(--surface)', color: 'var(--fg)', backgroundImage: 'none',
+          boxShadow: '0 25px 50px -12px rgba(0,0,0,0.35)',
+        },
+      }}
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-3">
+        <div className="min-w-0">
+          <h2 id={titleId} className="truncate text-base font-semibold">{title}</h2>
+          {description && <p id={descId} className="mt-0.5 text-xs text-muted">{description}</p>}
         </div>
-        {children && <div className="min-h-0 flex-1 overflow-auto">{children}</div>}
-        {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close dialog"><X size={16} /></Button>
       </div>
-    </div>,
-    document.body,
+      {children && <div className="min-h-0 flex-1 overflow-auto">{children}</div>}
+      {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+    </MuiDialog>
   );
 }
 
@@ -66,7 +55,7 @@ export function ConfirmDialog({ open, title, body, confirmLabel, tone = 'default
     <Dialog
       open={open} onClose={onCancel} title={title} size="sm"
       footer={<>
-        <Button variant="outline" onClick={onCancel} data-autofocus>Cancel</Button>
+        <Button variant="outline" onClick={onCancel} autoFocus>Cancel</Button>
         <Button variant={tone === 'danger' ? 'danger' : 'default'} onClick={() => { onConfirm(); onCancel(); }}>{confirmLabel}</Button>
       </>}
     >

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ExportMenu } from '@/components/ExportMenu';
 import { InfoTip } from '@/components/InfoTip';
+import { mapSourceColumnLink } from '@/features/mapping/links';
 import { AsyncView, Badge, Card, CardHeader, DataTable, Input, Select, Stat } from '@/components/ui';
 import { findGaps, gapsDoc, GAP_LABEL, type ColumnGap, type GapKind, type GapReport } from '@/domain/ruleConversion/gaps';
 import { useAsync } from '@/hooks/useAsync';
@@ -62,10 +63,7 @@ function Gaps({ rules, edits }: { rules: ConvertedRule[]; edits: ReturnType<type
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted">
-        These are rules from your uploaded SQL that cannot be converted because a CrisMac column they write or read has no confirmed TRAQ column.
-        Nothing is guessed: to unblock a rule, add the mapping in <Link to="/mapping" className="text-primary hover:underline">Agent 4</Link> (or the workbook) and it drops off this list.
-      </p>
+      <p className="text-xs text-muted">Columns with no confirmed TRAQ match block these rules. Map them in <Link to="/mapping" className="text-primary hover:underline">Agent 4</Link>.</p>
       <AiGapMapping gaps={report.columns} rules={rules} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Stat label="Rules blocked" value={s.rulesWithGap} hint={`of ${s.totalRules} rules`} />
@@ -122,6 +120,7 @@ function Detail({ gap, report }: { gap: ColumnGap; report: GapReport }) {
         </div>
         {gap.suggestion && <p className="text-xs text-muted">Agent 4 heuristic (Simulated, not applied): <span className="font-mono">{gap.suggestion}</span></p>}
         <p className="text-xs text-muted">{gap.note}</p>
+        <Link to={mapSourceColumnLink(gap.crismacTable, gap.crismacColumn)} className="inline-block text-xs text-primary hover:underline">Map {gap.crismacColumn} in Agent 4</Link>
       </div>
       <ul className="max-h-[70vh] divide-y divide-border overflow-auto">
         {gap.rules.slice(0, SHOWN_RULES).map((ref) => {

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { mapSourceColumnLink } from '@/features/mapping/links';
 import { ExportMenu } from '@/components/ExportMenu';
 import { InfoTip } from '@/components/InfoTip';
 import { AsyncView, Badge, Card, CardHeader, DataTable, Input, Progress, Select, Stat } from '@/components/ui';
@@ -146,7 +147,7 @@ function ParamEditor({ rules }: { rules: DdMigratedRule[] }) {
                 <td className="py-1.5 pr-2 font-mono">{p.name}</td>
                 <td className="py-1.5 pr-2 text-muted">{p.used}</td>
                 <td className="py-1.5 pr-2"><Input value={val(settings.paramValues, p.name)} onChange={(e) => put('paramValues', p.name, e.target.value)} className="h-8 w-32" aria-label={`Value of ${p.name}`} /></td>
-                <td className="py-1.5"><Input value={val(settings.paramMappings, p.name)} onChange={(e) => put('paramMappings', p.name, e.target.value)} placeholder='e.g. "{ENTITY}"."var"."BUSINESS_DATE"' className="h-8 w-full min-w-[16rem] font-mono" aria-label={`TRAQ expression for ${p.name}`} /></td>
+                <td className="py-1.5"><Input value={val(settings.paramMappings, p.name)} onChange={(e) => put('paramMappings', p.name, e.target.value)} placeholder='e.g. "{ENTITY}"."var"."BUSINESS_DATE"' className="h-8 w-full font-mono" aria-label={`TRAQ expression for ${p.name}`} /></td>
               </tr>
             ))}
           </tbody>
@@ -173,6 +174,9 @@ function RuleTable({ rows, empty, mapped }: { rows: DdMigratedRule[]; empty: str
                   <div key={`${u.role}-${u.crismac}`}>
                     <span className="font-mono">{u.crismac}</span> <Badge tone={u.status === 'suggested' || u.status === 'ambiguous' ? 'warn' : 'neutral'}>{u.role === 'parameter' ? 'parameter' : u.status === 'missing' ? 'no mapping' : u.status}</Badge>
                     <div className="text-muted">{u.reason}{u.suggestion ? ` - ${u.suggestion}` : ''}</div>
+                    {u.role !== 'parameter' && u.crismac.includes('.') && (
+                      <Link to={mapSourceColumnLink(u.crismac.slice(0, u.crismac.indexOf('.')), u.crismac.slice(u.crismac.indexOf('.') + 1))} className="text-primary hover:underline">Map {u.crismac} in Agent 4</Link>
+                    )}
                   </div>
                 ))}
                 {x.unmapped.length > 6 && <div className="text-muted">+{x.unmapped.length - 6} more</div>}

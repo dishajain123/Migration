@@ -34,7 +34,7 @@ export function AiSettingsPage() {
         {(o) => {
           const entry = o.providers.find((p) => p.info.id === selected) ?? o.providers.find((p) => p.info.id === o.active?.provider) ?? o.providers[0];
           return (
-            <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
+            <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
               <Card className="h-fit p-2">
                 <ul className="space-y-0.5" aria-label="AI providers">
                   {o.providers.map((p) => {
