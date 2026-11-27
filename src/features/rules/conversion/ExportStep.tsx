@@ -139,14 +139,14 @@ function ExportBody({ rules, templates, onOpenRule }: { rules: ConvertedRule[]; 
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-surface2 text-muted"><tr>{template.columns.map((c) => <th key={c.header} className="px-2 py-2 align-bottom font-medium" title={c.hint}>{c.header}{c.mandatory ? '*' : ''}</th>)}</tr></thead>
+              <thead className="bg-surface2 text-muted"><tr>{template.columns.map((c) => <th key={c.header} className="whitespace-nowrap px-3 py-2 align-bottom font-medium [overflow-wrap:normal]" title={c.hint}>{c.header}{c.mandatory ? '*' : ''}</th>)}</tr></thead>
               <tbody>
                 {inScope.slice(0, PREVIEW_ROWS).map((r) => (
                   <tr key={r.id} className="border-t border-border align-top">
                     {templateRow(template, demo ? demoFields(r, edits[r.id], batch) : effectiveFields(r, edits[r.id], batch)).map((v, i) => {
                       const wide = ['expression', 'explanation', 'crismac', 'reads'].includes(template.columns[i].field);
                       return (
-                        <td key={template.columns[i].header} className={cn('px-2 py-1.5', wide ? 'min-w-[10rem] max-w-[22rem]' : 'max-w-[9rem]', i === template.columns.findIndex((c) => c.field === 'expression') && 'font-mono text-[10.5px]', !v && template.columns[i].mandatory && 'bg-badbg')}>
+                        <td key={template.columns[i].header} className={cn('px-3 py-1.5', wide ? 'min-w-[14rem] max-w-[22rem]' : 'whitespace-nowrap [overflow-wrap:normal]', i === template.columns.findIndex((c) => c.field === 'expression') && 'font-mono text-[10.5px]', !v && template.columns[i].mandatory && 'bg-badbg')}>
                           <span className={wide ? 'line-clamp-3 break-all' : ''} title={v}>{v || (template.columns[i].mandatory ? 'missing' : '')}</span>
                         </td>
                       );
